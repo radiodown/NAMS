@@ -3,5 +3,6 @@ dist
 dist-ssr
 .vite
 *.local
+.env
 .DS_Store
 npm-debug.log*

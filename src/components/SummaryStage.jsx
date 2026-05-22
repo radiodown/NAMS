@@ -19,6 +19,7 @@ import {
 import { formatKRW, compactKRW, monthOf, todayStr } from '../lib/format'
 import { summarize, projectAssets } from '../lib/investments'
 import DataControls from './DataControls'
+import DriveBackup from './DriveBackup'
 
 const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
@@ -125,11 +126,14 @@ export default function SummaryStage({ entries, investments, onExport, onImport 
         <div>
           <h2 className="section-title">데이터 백업</h2>
           <p className="csv-desc">
-            모든 데이터를 JSON 파일 하나로 내보내 백업하고, 저장해 둔 JSON을
-            가져오면 데이터를 그대로 복원할 수 있습니다.
+            모든 데이터를 JSON 파일로 내보내거나 구글 드라이브에 저장해 백업하고,
+            저장해 둔 백업을 가져오면 데이터를 그대로 복원할 수 있습니다.
           </p>
         </div>
-        <DataControls onExport={onExport} onImport={onImport} variant="full" />
+        <div className="backup-controls">
+          <DataControls onExport={onExport} onImport={onImport} variant="full" />
+          <DriveBackup />
+        </div>
       </div>
 
       {empty ? (

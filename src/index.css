@@ -2438,3 +2438,56 @@ td.memo {
     transition: none;
   }
 }
+
+/* ---------- data backup — google drive ---------- */
+.backup-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.drive-backup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.drive-backup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.drive-backup-acct {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.drive-backup-msg {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  max-width: 280px;
+  text-align: right;
+  line-height: 1.5;
+}
+
+.drive-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 280px;
+  text-align: right;
+  line-height: 1.6;
+}
+
+.drive-hint code {
+  font-size: 11px;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
