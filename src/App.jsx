@@ -11,7 +11,7 @@ import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
 import SummaryStage from './components/SummaryStage'
-import DataControls from './components/DataControls'
+import SettingsModal from './components/SettingsModal'
 import { usePersistentState, exportDocument, importDocument } from './lib/store'
 import { STAGE_TABS as TABS, normalizeStageConfig, defaultStageConfig } from './lib/schema'
 
@@ -40,6 +40,7 @@ export default function App() {
   const [tab, setTab] = useState('수입')
   const [stageConfig, setStageConfig] = usePersistentState('settings.stages', defaultStageConfig)
   const [stageOpen, setStageOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [dragStage, setDragStage] = useState('')
   const [theme, setTheme] = usePersistentState('settings.theme', 'light')
   const currentMonth = todayStr().slice(0, 7)
@@ -293,9 +294,23 @@ export default function App() {
             </span>
             <span className="theme-toggle-label">{theme === 'dark' ? 'Dark' : 'Light'}</span>
           </button>
-          <DataControls onExport={exportJSON} onImport={importJSON} variant="compact" />
-          <button className="btn btn-sm btn-danger" onClick={clearStoredData}>
-            Clear
+          <button
+            className="settings-button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="설정 열기"
+            title="설정"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z" />
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.05.05a2.05 2.05 0 0 1-2.9 2.9l-.05-.05A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.08A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.05.05a2.05 2.05 0 0 1-2.9-2.9l.05-.05A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.08A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88l-.05-.05a2.05 2.05 0 0 1 2.9-2.9l.05.05A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.08A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.05-.05a2.05 2.05 0 0 1 2.9 2.9l-.05.05A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.08A1.7 1.7 0 0 0 19.4 15Z" />
+            </svg>
           </button>
         </div>
       </header>
@@ -313,6 +328,15 @@ export default function App() {
           </button>
         ))}
       </nav>
+
+      {settingsOpen && (
+        <SettingsModal
+          onClose={() => setSettingsOpen(false)}
+          onExport={exportJSON}
+          onImport={importJSON}
+          onClear={clearStoredData}
+        />
+      )}
 
       {stageOpen && (
         <div className="fixed-modal-backdrop" onClick={() => setStageOpen(false)}>
@@ -394,12 +418,7 @@ export default function App() {
 
       <div className="stage-transition" key={tab}>
         {tab === '그래프요약' ? (
-          <SummaryStage
-            entries={entriesWithCurrentFixed}
-            investments={invest.items}
-            onExport={exportJSON}
-            onImport={importJSON}
-          />
+          <SummaryStage entries={entriesWithCurrentFixed} investments={invest.items} />
         ) : tab === '투자' ? (
           <InvestmentStage investments={invest} />
         ) : tab === '지출 관리' ? (

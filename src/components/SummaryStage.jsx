@@ -18,8 +18,6 @@ import {
 } from 'recharts'
 import { formatKRW, compactKRW, monthOf, todayStr } from '../lib/format'
 import { summarize, projectAssets } from '../lib/investments'
-import DataControls from './DataControls'
-import DriveBackup from './DriveBackup'
 
 const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
@@ -66,7 +64,7 @@ function categoryBreakdown(entries, type) {
 
 const tooltipMoney = (value) => formatKRW(value)
 
-export default function SummaryStage({ entries, investments, onExport, onImport }) {
+export default function SummaryStage({ entries, investments }) {
   const today = todayStr()
   const [pieType, setPieType] = useState('지출')
   const [year, setYear] = useState('all')
@@ -122,25 +120,11 @@ export default function SummaryStage({ entries, investments, onExport, onImport 
 
   return (
     <div className="stage" style={{ '--accent': '#7c3aed' }}>
-      <div className="card csv-card">
-        <div>
-          <h2 className="section-title">데이터 백업</h2>
-          <p className="csv-desc">
-            모든 데이터를 JSON 파일로 내보내거나 구글 드라이브에 저장해 백업하고,
-            저장해 둔 백업을 가져오면 데이터를 그대로 복원할 수 있습니다.
-          </p>
-        </div>
-        <div className="backup-controls">
-          <DataControls onExport={onExport} onImport={onImport} variant="full" />
-          <DriveBackup />
-        </div>
-      </div>
-
       {empty ? (
         <div className="card">
           <div className="empty">
             <strong>표시할 데이터가 없습니다</strong>
-            수입 · 지출 · 투자 탭에서 내역을 입력하거나, 위의 <b>가져오기</b>로 백업 파일을
+            수입 · 지출 · 투자 탭에서 내역을 입력하거나, 설정에서 백업 파일을
             불러오세요.
           </div>
         </div>

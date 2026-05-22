@@ -74,8 +74,9 @@ button {
 
 .app-title {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
 }
 
 .app-title h1 {
@@ -83,11 +84,13 @@ button {
   font-size: 22px;
   font-weight: 800;
   letter-spacing: -0.02em;
+  line-height: 1;
 }
 
 .app-title span {
   font-size: 13px;
   color: var(--muted);
+  line-height: 1.2;
 }
 
 .header-actions {
@@ -172,6 +175,11 @@ button {
 .csv-controls {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.csv-controls.settings {
+  justify-content: flex-end;
 }
 
 .theme-toggle {
@@ -230,9 +238,83 @@ button {
   text-align: left;
 }
 
+.settings-button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.settings-button svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.9;
+  transition: transform 0.18s ease;
+}
+
+.settings-button:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--theme-accent) 28%, var(--border));
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+}
+
+.settings-button:hover svg {
+  transform: rotate(28deg);
+}
+
 /* ---------- stage manager ---------- */
 .stage-modal {
   width: min(460px, 100%);
+}
+
+.settings-modal {
+  width: min(520px, 100%);
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.settings-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-section-head h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.settings-section-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .stage-manager-list {
@@ -1142,27 +1224,6 @@ td.memo {
   color: var(--text);
   font-size: 16px;
   margin-bottom: 6px;
-}
-
-/* ---------- summary / csv ---------- */
-.csv-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.csv-card .section-title {
-  margin-bottom: 4px;
-}
-
-.csv-desc {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
-  max-width: 540px;
-  line-height: 1.6;
 }
 
 .year-filter {
@@ -2258,6 +2319,7 @@ td.memo {
   .btn:hover,
   .tab:hover,
   .theme-toggle:hover,
+  .settings-button:hover,
   .stage-manager-row:hover,
   .stage-drag-handle:hover,
   .picker-button:hover,
@@ -2326,8 +2388,14 @@ td.memo {
     grid-template-columns: 1fr;
   }
 
-  .app-title span {
-    display: none;
+  .settings-section {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settings-section-actions,
+  .csv-controls.settings {
+    justify-content: flex-start;
   }
 }
 
@@ -2439,26 +2507,10 @@ td.memo {
   }
 }
 
-/* ---------- data backup — google drive ---------- */
-.backup-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-end;
-}
-
 .drive-backup {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  align-items: flex-end;
-}
-
-.drive-backup-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
+  gap: 10px;
 }
 
 .drive-backup-acct {
@@ -2471,7 +2523,6 @@ td.memo {
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
-  max-width: 280px;
   text-align: right;
   line-height: 1.5;
 }
@@ -2480,8 +2531,6 @@ td.memo {
   margin: 0;
   font-size: 12px;
   color: var(--muted);
-  max-width: 280px;
-  text-align: right;
   line-height: 1.6;
 }
 

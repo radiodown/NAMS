@@ -10,6 +10,7 @@ const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 const SCOPE = 'https://www.googleapis.com/auth/drive.file'
 const GIS_SRC = 'https://accounts.google.com/gsi/client'
 const BACKUP_NAME = 'nams-backup.json'
+const CONNECTION_KEY = 'nams-google-drive-connection'
 
 export function isConfigured() {
   return Boolean(CLIENT_ID)
@@ -45,6 +46,30 @@ let tokenClient = null
 let pendingReject = null
 let accessToken = ''
 let tokenExpiry = 0
+
+export function getSavedConnection() {
+  try {
+    return JSON.parse(localStorage.getItem(CONNECTION_KEY) || 'null') || null
+  } catch {
+    return null
+  }
+}
+
+function rememberConnection(email = '') {
+  try {
+    localStorage.setItem(CONNECTION_KEY, JSON.stringify({ connected: true, email }))
+  } catch {
+    // The Drive token can still work even if the connection hint cannot be saved.
+  }
+}
+
+function forgetConnection() {
+  try {
+    localStorage.removeItem(CONNECTION_KEY)
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
 
 async function ensureTokenClient() {
   await loadGis()
@@ -98,6 +123,7 @@ export function signOut() {
   }
   accessToken = ''
   tokenExpiry = 0
+  forgetConnection()
 }
 
 // --- Drive REST -------------------------------------------------------------
@@ -141,6 +167,7 @@ export async function connect() {
   } catch {
     // about.get may be unavailable — the connection itself still works
   }
+  rememberConnection(email)
   return { email }
 }
 
