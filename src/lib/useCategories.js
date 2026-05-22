@@ -1,77 +1,57 @@
-import { useCallback, useEffect, useState } from 'react'
-import { STAGE_META } from './categories'
+import { useCallback, useMemo } from 'react'
+import { defaultCategories, uniqueList } from './schema'
+import { usePersistentState } from './store'
 
-const STORAGE_KEY = 'wal-categories'
-
-const defaultCategories = () => ({
-  수입: [...STAGE_META.수입.categories],
-  지출: [...STAGE_META.지출.categories],
-})
-
-function uniqueList(list) {
-  return [...new Set(list.map((v) => String(v || '').trim()).filter(Boolean))]
-}
-
-function listOrDefault(list, fallback) {
-  const normalized = uniqueList(Array.isArray(list) ? list : [])
-  return normalized.length > 0 ? normalized : [...fallback]
-}
-
-function loadCategories() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return defaultCategories()
-    const parsed = JSON.parse(raw)
-    return {
-      수입: listOrDefault(parsed?.수입, STAGE_META.수입.categories),
-      지출: listOrDefault(parsed?.지출, STAGE_META.지출.categories),
-    }
-  } catch {
-    return defaultCategories()
-  }
-}
-
+// Per-stage category lists. They power autocomplete only — users can still
+// type any custom category on an entry.
 export function useCategories() {
-  const [categories, setCategories] = useState(loadCategories)
+  const [income, setIncome] = usePersistentState('stages.income.categories', () =>
+    defaultCategories('수입')
+  )
+  const [expense, setExpense] = usePersistentState('stages.expense.categories', () =>
+    defaultCategories('지출')
+  )
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(categories))
-    } catch {
-      // skip silently
-    }
-  }, [categories])
+  const categories = useMemo(() => ({ 수입: income, 지출: expense }), [income, expense])
 
-  const addCategory = useCallback((type, name) => {
-    const nextName = String(name || '').trim()
-    if (!nextName) return false
-    setCategories((prev) => ({
-      ...prev,
-      [type]: uniqueList([...(prev[type] || []), nextName]),
-    }))
-    return true
-  }, [])
+  const setterFor = useCallback(
+    (type) => (type === '수입' ? setIncome : type === '지출' ? setExpense : null),
+    [setIncome, setExpense]
+  )
 
-  const updateCategory = useCallback((type, oldName, nextName) => {
-    const from = String(oldName || '').trim()
-    const to = String(nextName || '').trim()
-    if (!from || !to) return false
-    setCategories((prev) => ({
-      ...prev,
-      [type]: uniqueList((prev[type] || []).map((c) => (c === from ? to : c))),
-    }))
-    return true
-  }, [])
+  const addCategory = useCallback(
+    (type, name) => {
+      const next = String(name || '').trim()
+      const setter = setterFor(type)
+      if (!next || !setter) return false
+      setter((prev) => uniqueList([...(prev || []), next]))
+      return true
+    },
+    [setterFor]
+  )
 
-  const removeCategory = useCallback((type, name) => {
-    const target = String(name || '').trim()
-    if (!target) return false
-    setCategories((prev) => ({
-      ...prev,
-      [type]: (prev[type] || []).filter((c) => c !== target),
-    }))
-    return true
-  }, [])
+  const updateCategory = useCallback(
+    (type, oldName, nextName) => {
+      const from = String(oldName || '').trim()
+      const to = String(nextName || '').trim()
+      const setter = setterFor(type)
+      if (!from || !to || !setter) return false
+      setter((prev) => uniqueList((prev || []).map((c) => (c === from ? to : c))))
+      return true
+    },
+    [setterFor]
+  )
+
+  const removeCategory = useCallback(
+    (type, name) => {
+      const target = String(name || '').trim()
+      const setter = setterFor(type)
+      if (!target || !setter) return false
+      setter((prev) => (prev || []).filter((c) => c !== target))
+      return true
+    },
+    [setterFor]
+  )
 
   return { categories, addCategory, updateCategory, removeCategory }
 }

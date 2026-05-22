@@ -1,46 +1,41 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback } from 'react'
 import { createId } from './id'
-
-const STORAGE_KEY = 'wal-investments'
-
-function loadItems() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
+import { normalizeInvestment } from './schema'
+import { usePersistentState } from './store'
 
 // Investment products: 예금 / 적금 / 주식. Each has a `kind` and kind-specific fields.
 export function useInvestments() {
-  const [items, setItems] = useState(loadItems)
+  const [items, setItems] = usePersistentState('stages.investment.products', [])
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-    } catch {
-      // storage full or unavailable — skip silently
-    }
-  }, [items])
+  const addItem = useCallback(
+    (item) => {
+      setItems((prev) => [...prev, normalizeInvestment({ ...item, id: createId() })])
+    },
+    [setItems]
+  )
 
-  const addItem = useCallback((item) => {
-    setItems((prev) => [...prev, { ...item, id: createId() }])
-  }, [])
+  const updateItem = useCallback(
+    (id, patch) => {
+      setItems((prev) =>
+        prev.map((it) => (it.id === id ? normalizeInvestment({ ...it, ...patch, id }) : it))
+      )
+    },
+    [setItems]
+  )
 
-  const updateItem = useCallback((id, patch) => {
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)))
-  }, [])
+  const removeItem = useCallback(
+    (id) => {
+      setItems((prev) => prev.filter((it) => it.id !== id))
+    },
+    [setItems]
+  )
 
-  const removeItem = useCallback((id) => {
-    setItems((prev) => prev.filter((it) => it.id !== id))
-  }, [])
-
-  const replaceAll = useCallback((next) => {
-    setItems(Array.isArray(next) ? next : [])
-  }, [])
+  const replaceAll = useCallback(
+    (next) => {
+      setItems(Array.isArray(next) ? next.map(normalizeInvestment) : [])
+    },
+    [setItems]
+  )
 
   return { items, addItem, updateItem, removeItem, replaceAll }
 }

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { STAGE_META } from '../lib/categories'
 import { formatKRW } from '../lib/format'
+import { createId } from '../lib/id'
 import Picker from './Picker'
 import PlusIcon from './PlusIcon'
 
@@ -72,6 +73,8 @@ export default function FixedExpenses({
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [draggingId, setDraggingId] = useState(null)
+  const [dropKey, setDropKey] = useState(null)
 
   const categoryOptions = useMemo(() => {
     const current = form.category.trim()
@@ -87,11 +90,6 @@ export default function FixedExpenses({
 
   const totalMonthly = useMemo(
     () => items.reduce((s, it) => s + (Number(it?.amount) || 0), 0),
-    [items]
-  )
-
-  const maxAmount = useMemo(
-    () => items.reduce((m, it) => Math.max(m, Number(it?.amount) || 0), 0),
     [items]
   )
 
@@ -118,9 +116,57 @@ export default function FixedExpenses({
     return order.map((category) => map.get(category))
   }, [items, categories])
 
-  const orderedItems = useMemo(
-    () => groups.flatMap((group) => group.items.map((it) => ({ it, group }))),
-    [groups]
+  // Widgets that share a groupId render as one merged "bundle" card. A bundle
+  // needs 2+ members; a lone groupId silently falls back to a normal widget.
+  const bundleCounts = useMemo(() => {
+    const counts = new Map()
+    items.filter(Boolean).forEach((it) => {
+      if (it.groupId) counts.set(it.groupId, (counts.get(it.groupId) || 0) + 1)
+    })
+    return counts
+  }, [items])
+
+  // Flatten the category groups into render units — each unit is either a
+  // single widget or a bundle, with the bundle placed at its first member.
+  const renderUnits = useMemo(() => {
+    const units = []
+    const bundleAt = new Map()
+    groups.forEach((cg) => {
+      cg.items.forEach((it) => {
+        const gid = it.groupId
+        if (gid && (bundleCounts.get(gid) || 0) >= 2) {
+          if (bundleAt.has(gid)) {
+            const unit = units[bundleAt.get(gid)]
+            unit.items.push(it)
+            unit.subtotal += Number(it.amount) || 0
+          } else {
+            bundleAt.set(gid, units.length)
+            units.push({
+              type: 'bundle',
+              key: gid,
+              groupId: gid,
+              category: cg.category,
+              color: cg.color,
+              items: [it],
+              subtotal: Number(it.amount) || 0,
+            })
+          }
+        } else {
+          units.push({ type: 'single', key: it.id, it, category: cg.category })
+        }
+      })
+    })
+    return units
+  }, [groups, bundleCounts])
+
+  // Bar widths are relative to the largest unit (single amount or bundle total).
+  const maxUnitAmount = useMemo(
+    () =>
+      renderUnits.reduce(
+        (m, u) => Math.max(m, u.type === 'bundle' ? u.subtotal : Number(u.it.amount) || 0),
+        0
+      ),
+    [renderUnits]
   )
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
@@ -202,6 +248,69 @@ export default function FixedExpenses({
     }
   }
 
+  const draggingItem = draggingId ? items.find((it) => it.id === draggingId) || null : null
+
+  // A widget may only be dropped onto a same-category target, never itself.
+  function canDrop(unit) {
+    if (!draggingItem) return false
+    const cat = draggingItem.category || '기타'
+    if (unit.type === 'single') {
+      return unit.it.id !== draggingItem.id && (unit.it.category || '기타') === cat
+    }
+    return unit.category === cat
+  }
+
+  function handleDragStart(e, it) {
+    setDraggingId(it.id)
+    e.dataTransfer.effectAllowed = 'move'
+    try {
+      e.dataTransfer.setData('text/plain', it.id)
+    } catch {
+      // some browsers restrict setData during dragstart — draggingId covers it
+    }
+  }
+
+  function handleDragEnd() {
+    setDraggingId(null)
+    setDropKey(null)
+  }
+
+  function handleDragOver(e, unit) {
+    if (!canDrop(unit)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dropKey !== unit.key) setDropKey(unit.key)
+  }
+
+  function handleDragLeave(e, unit) {
+    if (e.currentTarget.contains(e.relatedTarget)) return
+    if (dropKey === unit.key) setDropKey(null)
+  }
+
+  function handleDrop(e, unit) {
+    e.preventDefault()
+    const ok = canDrop(unit)
+    const source = draggingItem
+    setDraggingId(null)
+    setDropKey(null)
+    if (!ok || !source) return
+    if (unit.type === 'single') {
+      // merge two singles — reuse the target's groupId if it already had one
+      const groupId = unit.it.groupId || createId()
+      updateItem(source.id, { groupId })
+      updateItem(unit.it.id, { groupId })
+    } else {
+      // drop onto an existing bundle
+      updateItem(source.id, { groupId: unit.groupId })
+    }
+  }
+
+  function ungroupBundle(groupId) {
+    items
+      .filter((it) => it.groupId === groupId)
+      .forEach((it) => updateItem(it.id, { groupId: '' }))
+  }
+
   return (
     <div className="fixed-section" style={{ '--accent': STAGE_META.지출.color }}>
       <div className="fixed-head">
@@ -247,7 +356,24 @@ export default function FixedExpenses({
               )}
 
               <div className="fixed-widget-grid">
-                {orderedItems.map(({ it, group }) => {
+                {renderUnits.map((unit) => {
+                  if (unit.type === 'bundle') {
+                    return (
+                      <BundleWidget
+                        key={unit.key}
+                        unit={unit}
+                        totalMonthly={totalMonthly}
+                        maxUnitAmount={maxUnitAmount}
+                        categories={categories}
+                        isDropTarget={dropKey === unit.key}
+                        onDragOver={(e) => handleDragOver(e, unit)}
+                        onDragLeave={(e) => handleDragLeave(e, unit)}
+                        onDrop={(e) => handleDrop(e, unit)}
+                        onUngroup={() => ungroupBundle(unit.groupId)}
+                      />
+                    )
+                  }
+                  const { it } = unit
                   const amount = Number(it.amount) || 0
                   const day = itemDay(it)
                   const dday = daysUntilPayment(day)
@@ -255,20 +381,26 @@ export default function FixedExpenses({
                   const share =
                     totalMonthly > 0 ? Math.round((amount / totalMonthly) * 100) : 0
                   const shareLabel = amount > 0 && share === 0 ? '<1%' : `${share}%`
-                  const barWidth = maxAmount > 0 ? (amount / maxAmount) * 100 : 0
-                  const widgetColor = itemColor(it, group.category, categories)
+                  const barWidth = maxUnitAmount > 0 ? (amount / maxUnitAmount) * 100 : 0
+                  const widgetColor = itemColor(it, unit.category, categories)
                   return (
                     <div
-                      className={`fixed-expense-widget${
-                        editingId === it.id ? ' editing' : ''
-                      }`}
-                      key={it.id || `${group.category}-${itemName(it)}-${amount}`}
+                      className={`fixed-expense-widget${editingId === it.id ? ' editing' : ''}${
+                        draggingId === it.id ? ' dragging' : ''
+                      }${dropKey === unit.key ? ' drop-target' : ''}`}
+                      key={unit.key}
                       style={{ '--accent': widgetColor }}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, it)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleDragOver(e, unit)}
+                      onDragLeave={(e) => handleDragLeave(e, unit)}
+                      onDrop={(e) => handleDrop(e, unit)}
                     >
                       <div className="fixed-widget-head">
                         <span className="fixed-widget-cat">
                           <span className="fixed-widget-dot" />
-                          <span className="fixed-widget-cat-label">{group.category}</span>
+                          <span className="fixed-widget-cat-label">{unit.category}</span>
                         </span>
                         <div className="fixed-widget-actions">
                           <button
@@ -426,6 +558,81 @@ export default function FixedExpenses({
           )}
         </>
       )}
+    </div>
+  )
+}
+
+// A merged card standing in for several same-category widgets. Hovering it
+// reveals its members; the × button ungroups it.
+function BundleWidget({
+  unit,
+  totalMonthly,
+  maxUnitAmount,
+  categories,
+  isDropTarget,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onUngroup,
+}) {
+  const { category, color, items: members, subtotal } = unit
+  const share = totalMonthly > 0 ? Math.round((subtotal / totalMonthly) * 100) : 0
+  const shareLabel = subtotal > 0 && share === 0 ? '<1%' : `${share}%`
+  const barWidth = maxUnitAmount > 0 ? Math.min((subtotal / maxUnitAmount) * 100, 100) : 0
+
+  return (
+    <div
+      className={`fixed-expense-widget is-bundle${isDropTarget ? ' drop-target' : ''}`}
+      style={{ '--accent': color }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      <div className="fixed-widget-head">
+        <span className="fixed-widget-cat">
+          <span className="fixed-widget-dot" />
+          <span className="fixed-widget-cat-label">묶음 · {members.length}개</span>
+        </span>
+        <div className="fixed-widget-actions">
+          <button
+            className="icon-btn danger"
+            onClick={onUngroup}
+            aria-label={`${category} 묶음 해제`}
+            title="그룹 해제"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+
+      <div className="fixed-widget-main">
+        <span className="fixed-expense-amount">{formatKRW(subtotal)}</span>
+        <span className="fixed-expense-name">{category}</span>
+      </div>
+
+      <div className="fixed-widget-bar">
+        <i style={{ width: `${barWidth}%` }} />
+      </div>
+
+      <div className="fixed-widget-foot">
+        <span className="fixed-widget-share">{shareLabel}</span>
+      </div>
+
+      <div className="fixed-bundle-members" role="tooltip">
+        <span className="fixed-bundle-members-title">묶음 항목 {members.length}개</span>
+        {members.map((m) => (
+          <span className="fixed-bundle-member" key={m.id}>
+            <span
+              className="fixed-bundle-member-dot"
+              style={{ background: itemColor(m, category, categories) }}
+            />
+            <span className="fixed-bundle-member-name">{itemName(m)}</span>
+            <span className="fixed-bundle-member-amount">
+              {formatKRW(Number(m.amount) || 0)}
+            </span>
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

@@ -18,7 +18,7 @@ import {
 } from 'recharts'
 import { formatKRW, compactKRW, monthOf, todayStr } from '../lib/format'
 import { summarize, projectAssets } from '../lib/investments'
-import CsvControls from './CsvControls'
+import DataControls from './DataControls'
 
 const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
@@ -123,21 +123,21 @@ export default function SummaryStage({ entries, investments, onExport, onImport 
     <div className="stage" style={{ '--accent': '#7c3aed' }}>
       <div className="card csv-card">
         <div>
-          <h2 className="section-title">CSV 데이터 관리</h2>
+          <h2 className="section-title">데이터 백업</h2>
           <p className="csv-desc">
-            거래 · 고정지출 · 투자상품을 하나의 CSV로 내보내 백업하고, 저장해 둔 CSV를
-            업로드하면 아래 그래프에서 추이를 확인할 수 있습니다.
+            모든 데이터를 JSON 파일 하나로 내보내 백업하고, 저장해 둔 JSON을
+            가져오면 데이터를 그대로 복원할 수 있습니다.
           </p>
         </div>
-        <CsvControls onExport={onExport} onImport={onImport} variant="full" />
+        <DataControls onExport={onExport} onImport={onImport} variant="full" />
       </div>
 
       {empty ? (
         <div className="card">
           <div className="empty">
             <strong>표시할 데이터가 없습니다</strong>
-            수입 · 지출 · 투자 탭에서 내역을 입력하거나, 위의 <b>CSV 가져오기</b>로 파일을
-            업로드하세요.
+            수입 · 지출 · 투자 탭에서 내역을 입력하거나, 위의 <b>가져오기</b>로 백업 파일을
+            불러오세요.
           </div>
         </div>
       ) : (

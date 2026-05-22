@@ -4,7 +4,6 @@ import { useFixedExpenses } from './lib/useFixedExpenses'
 import { useInvestments } from './lib/useInvestments'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
-import { toCSV, fromCSV } from './lib/csv'
 import { todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR } from './lib/categories'
 import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from './lib/fixedExpenseEntries'
@@ -12,11 +11,9 @@ import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
 import SummaryStage from './components/SummaryStage'
-import CsvControls from './components/CsvControls'
-
-const TABS = ['수입', '지출', '지출 관리', '투자', '그래프요약']
-const STAGE_STORAGE_KEY = 'wal-stage-config-yaml'
-const THEME_STORAGE_KEY = 'wal-theme-settings-yaml'
+import DataControls from './components/DataControls'
+import { usePersistentState, exportDocument, importDocument } from './lib/store'
+import { STAGE_TABS as TABS, normalizeStageConfig, defaultStageConfig } from './lib/schema'
 
 const TAB_COLOR = {
   수입: STAGE_META.수입.color,
@@ -26,101 +23,11 @@ const TAB_COLOR = {
   그래프요약: SUMMARY_COLOR,
 }
 
-function normalizeStageConfig(value) {
-  const saved = Array.isArray(value) ? value : []
-  const used = new Set()
-  const ordered = []
-
-  saved.forEach((stage) => {
-    const name = typeof stage === 'string' ? stage : stage?.name
-    if (!TABS.includes(name) || used.has(name)) return
-    used.add(name)
-    ordered.push({ name, visible: stage?.visible !== false })
-  })
-
-  TABS.forEach((name) => {
-    if (!used.has(name)) ordered.push({ name, visible: true })
-  })
-
-  if (!ordered.some((stage) => stage.visible)) ordered[0].visible = true
-  return ordered
-}
-
-function loadStageConfig() {
-  try {
-    return normalizeStageConfig(parseStageConfigYaml(localStorage.getItem(STAGE_STORAGE_KEY) || ''))
-  } catch {
-    return normalizeStageConfig([])
-  }
-}
-
-function serializeStageConfig(config) {
-  return [
-    'stages:',
-    ...normalizeStageConfig(config).flatMap((stage) => [
-      `  - name: ${stage.name}`,
-      `    visible: ${stage.visible ? 'true' : 'false'}`,
-    ]),
-  ].join('\n')
-}
-
-function parseStageConfigYaml(text) {
-  const stages = []
-  let current = null
-
-  String(text || '').split(/\r?\n/).forEach((line) => {
-    const trimmed = line.trim()
-    if (trimmed.startsWith('- name:')) {
-      if (current) stages.push(current)
-      current = { name: trimmed.slice('- name:'.length).trim(), visible: true }
-    } else if (trimmed.startsWith('visible:') && current) {
-      current.visible = trimmed.slice('visible:'.length).trim() !== 'false'
-    }
-  })
-
-  if (current) stages.push(current)
-  return stages
-}
-
-function normalizeTheme(value) {
-  return value === 'dark' ? 'dark' : 'light'
-}
-
-function loadTheme() {
-  try {
-    const line = String(localStorage.getItem(THEME_STORAGE_KEY) || '')
-      .split(/\r?\n/)
-      .find((item) => item.trim().startsWith('theme:'))
-    return normalizeTheme(line?.split(':').slice(1).join(':').trim())
-  } catch {
-    return 'light'
-  }
-}
-
-function serializeTheme(theme) {
-  return `theme: ${normalizeTheme(theme)}`
-}
-
 function shiftMonth(month, offset) {
   const [year, monthNum] = month.split('-').map(Number)
   if (!year || !monthNum) return month
   const date = new Date(year, monthNum - 1 + offset, 1)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-}
-
-function completedMonthsThisYear(month) {
-  const [year, monthNum] = month.split('-').map(Number)
-  if (!year || !monthNum || monthNum <= 1) return []
-  return Array.from(
-    { length: monthNum - 1 },
-    (_, index) => `${year}-${String(index + 1).padStart(2, '0')}`
-  )
-}
-
-function completedMonthsToRecord(month) {
-  const months = completedMonthsThisYear(month)
-  const previous = shiftMonth(month, -1)
-  return previous && !months.includes(previous) ? [...months, previous] : months
 }
 
 export default function App() {
@@ -131,10 +38,10 @@ export default function App() {
   const paymentMethods = usePaymentMethods()
   const { entries } = ledger
   const [tab, setTab] = useState('수입')
-  const [stageConfig, setStageConfig] = useState(loadStageConfig)
+  const [stageConfig, setStageConfig] = usePersistentState('settings.stages', defaultStageConfig)
   const [stageOpen, setStageOpen] = useState(false)
   const [dragStage, setDragStage] = useState('')
-  const [theme, setTheme] = useState(loadTheme)
+  const [theme, setTheme] = usePersistentState('settings.theme', 'light')
   const currentMonth = todayStr().slice(0, 7)
   const previousMonth = shiftMonth(currentMonth, -1)
   const transactionEntries = useMemo(
@@ -172,20 +79,7 @@ export default function App() {
   )
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STAGE_STORAGE_KEY, serializeStageConfig(stageConfig))
-    } catch {
-      // skip silently
-    }
-  }, [stageConfig])
-
-  useEffect(() => {
     document.documentElement.dataset.theme = theme
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, serializeTheme(theme))
-    } catch {
-      // skip silently
-    }
   }, [theme])
 
   useEffect(() => {
@@ -193,79 +87,57 @@ export default function App() {
   }, [tab, visibleTabs])
 
   useEffect(() => {
-    completedMonthsToRecord(currentMonth).forEach((month) => {
-      fixed.recordMonth(month, paymentMethods.items)
-    })
-  }, [currentMonth, fixed.recordMonth, paymentMethods.items])
-
-  function exportCSV() {
-    if (
-      entries.length === 0 &&
-      fixed.items.length === 0 &&
-      fixed.records.length === 0 &&
-      invest.items.length === 0 &&
-      paymentMethods.items.length === 0
-    ) {
-      alert('내보낼 데이터가 없습니다.')
-      return
+    const last = fixed.lastActiveMonth
+    if (last && last < currentMonth) {
+      fixed.recordMonth(last, paymentMethods.items)
     }
-    const csv =
-      '﻿' +
-      toCSV({
-        transactions: entries,
-        fixedItems: fixed.items,
-        fixedRecords: fixed.records,
-        investments: invest.items,
-        paymentMethods: paymentMethods.items,
-      })
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    if (last !== currentMonth) {
+      fixed.setLastActiveMonth(currentMonth)
+    }
+  }, [currentMonth, fixed.lastActiveMonth, fixed.recordMonth, fixed.setLastActiveMonth, paymentMethods.items])
+
+  function exportJSON() {
+    const json = JSON.stringify(exportDocument(), null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `가계부_${todayStr()}.csv`
+    a.download = `가계부_${todayStr()}.json`
     document.body.appendChild(a)
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
   }
 
-  function importCSV(file) {
+  function importJSON(file) {
     const reader = new FileReader()
     reader.onload = () => {
-      const {
-        transactions,
-        fixedItems,
-        fixedRecords,
-        investments,
-        paymentMethods: importedPaymentMethods,
-      } = fromCSV(String(reader.result || ''))
-      const total =
-        transactions.length + fixedItems.length + fixedRecords.length + investments.length + importedPaymentMethods.length
-      if (total === 0) {
-        alert(
-          'CSV에서 가져올 데이터를 찾지 못했습니다.\n헤더와 type 값(수입/지출/고정지출/고정지출기록/결제수단/예금/적금/주식)을 확인해 주세요.'
-        )
+      let parsed
+      try {
+        parsed = JSON.parse(String(reader.result || ''))
+      } catch {
+        alert('JSON 파일을 읽지 못했습니다. 형식을 확인해 주세요.')
         return
       }
-      const current =
-        entries.length + fixed.items.length + fixed.records.length + invest.items.length + paymentMethods.items.length
+      if (!parsed || typeof parsed !== 'object' || !parsed.stages || typeof parsed.stages !== 'object') {
+        alert('가계부 백업 JSON이 아닙니다.')
+        return
+      }
+      const stages = parsed.stages
+      const count =
+        (stages.income?.entries?.length || 0) +
+        (stages.expense?.entries?.length || 0) +
+        (stages.expense?.fixed?.templates?.length || 0) +
+        (stages.investment?.products?.length || 0)
       if (
-        current > 0 &&
         !window.confirm(
-          `현재 모든 데이터(거래·고정지출·고정지출 기록·투자상품·결제수단) ${current}건을 CSV의 ${total}건으로 교체합니다.\n계속할까요?`
+          `현재 데이터를 이 백업(거래·고정지출·투자 ${count}건)으로 모두 교체합니다.\n계속할까요?`
         )
       ) {
         return
       }
-      ledger.replaceAll(transactions)
-      fixed.replaceAll(fixedItems)
-      fixed.replaceRecords(fixedRecords)
-      invest.replaceAll(investments)
-      paymentMethods.replaceAll(importedPaymentMethods)
-      setTab('그래프요약')
-      alert(
-        `가져오기 완료\n· 거래 ${transactions.length}건\n· 고정지출 ${fixedItems.length}건\n· 고정지출 기록 ${fixedRecords.length}건\n· 투자상품 ${investments.length}건\n· 결제수단 ${importedPaymentMethods.length}건`
-      )
+      importDocument(parsed)
+      window.location.reload()
     }
     reader.onerror = () => alert('파일을 읽지 못했습니다.')
     reader.readAsText(file, 'utf-8')
@@ -395,6 +267,14 @@ export default function App() {
     setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
   }
 
+  function clearStoredData() {
+    if (!window.confirm('저장된 모든 데이터를 삭제할까요?')) return
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('wal-'))
+      .forEach((key) => localStorage.removeItem(key))
+    window.location.reload()
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -413,7 +293,10 @@ export default function App() {
             </span>
             <span className="theme-toggle-label">{theme === 'dark' ? 'Dark' : 'Light'}</span>
           </button>
-          <CsvControls onExport={exportCSV} onImport={importCSV} variant="compact" />
+          <DataControls onExport={exportJSON} onImport={importJSON} variant="compact" />
+          <button className="btn btn-sm btn-danger" onClick={clearStoredData}>
+            Clear
+          </button>
         </div>
       </header>
 
@@ -514,8 +397,8 @@ export default function App() {
           <SummaryStage
             entries={entriesWithCurrentFixed}
             investments={invest.items}
-            onExport={exportCSV}
-            onImport={importCSV}
+            onExport={exportJSON}
+            onImport={importJSON}
           />
         ) : tab === '투자' ? (
           <InvestmentStage investments={invest} />
@@ -550,7 +433,7 @@ export default function App() {
       </div>
 
       <footer className="app-footer">
-        데이터는 이 브라우저에 자동 저장됩니다 · 백업하거나 다른 기기로 옮기려면 CSV로 내보내세요
+        데이터는 이 브라우저에 자동 저장됩니다 · 백업하거나 다른 기기로 옮기려면 JSON으로 내보내세요
       </footer>
     </div>
   )

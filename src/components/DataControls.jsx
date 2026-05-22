@@ -1,6 +1,8 @@
 import { useRef } from 'react'
 
-export default function CsvControls({ onExport, onImport, variant = 'compact' }) {
+// Backup controls: export the whole wal-store document as raw JSON, and
+// restore it by importing a JSON file.
+export default function DataControls({ onExport, onImport, variant = 'compact' }) {
   const inputRef = useRef(null)
 
   function handleFile(e) {
@@ -14,15 +16,15 @@ export default function CsvControls({ onExport, onImport, variant = 'compact' })
       <input
         ref={inputRef}
         type="file"
-        accept=".csv,text/csv"
+        accept=".json,application/json"
         onChange={handleFile}
         hidden
       />
       <button className="btn btn-ghost" onClick={() => inputRef.current?.click()}>
-        CSV 가져오기
+        가져오기
       </button>
       <button className="btn btn-primary" onClick={onExport}>
-        CSV 내보내기
+        내보내기
       </button>
     </div>
   )
