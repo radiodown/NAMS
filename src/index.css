@@ -543,7 +543,7 @@ button {
 }
 
 .stage-transition {
-  animation: stage-slide-in 0.24s ease both;
+  animation: stage-slide-in 0.24s ease;
 }
 
 @keyframes stage-slide-in {
