@@ -465,7 +465,7 @@ export default function LedgerStage({
           </div>
         ) : (
           <div className="table-wrap">
-            <table>
+            <table className="ledger-table">
               <thead>
                 <tr>
                   <th>날짜</th>
@@ -479,15 +479,19 @@ export default function LedgerStage({
               <tbody>
                 {rows.map((row) => (
                   <tr key={row.id} className={editingId === row.id ? 'editing' : undefined}>
-                    <td>{row.date || '—'}</td>
-                    <td>
+                    <td data-label="날짜">{row.date || '—'}</td>
+                    <td data-label="카테고리">
                       <span className="tag">{row.category}</span>
                       {row.fixedId && <span className="mini-tag">고정</span>}
                     </td>
-                    {type === '지출' && <td>{paymentName(row.paymentMethodId, row.paymentMethod)}</td>}
-                    <td className="amount">{formatKRW(row.amount)}</td>
-                    <td className="memo">{row.memo || '—'}</td>
-                    <td>
+                    {type === '지출' && (
+                      <td data-label="결제수단">
+                        {paymentName(row.paymentMethodId, row.paymentMethod)}
+                      </td>
+                    )}
+                    <td className="amount" data-label="금액">{formatKRW(row.amount)}</td>
+                    <td className="memo" data-label="메모">{row.memo || '—'}</td>
+                    <td data-label="관리">
                       <div className="row-actions">
                         {type === '지출' ? (
                           <>

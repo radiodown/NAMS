@@ -27,8 +27,8 @@ export default function SettingsModal({ onClose, onExport, onImport, onClear }) 
               onExport={onExport}
               onImport={onImport}
               variant="settings"
-              exportLabel="로컬 저장"
-              importLabel="로컬 불러오기"
+              exportLabel="저장"
+              importLabel="불러오기"
             />
           </section>
 

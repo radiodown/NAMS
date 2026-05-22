@@ -2,6 +2,25 @@ import { useRef } from 'react'
 
 // Backup controls: export the whole nams-store document as raw JSON, and
 // restore it by importing a JSON file.
+function LocalActionIcon({ type }) {
+  if (type === 'save') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+        <path d="M17 21v-8H7v8" />
+        <path d="M7 3v5h8" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 21h14" />
+    </svg>
+  )
+}
+
 export default function DataControls({
   onExport,
   onImport,
@@ -26,11 +45,17 @@ export default function DataControls({
         onChange={handleFile}
         hidden
       />
-      <button className="btn btn-ghost" onClick={() => inputRef.current?.click()}>
-        {importLabel}
-      </button>
-      <button className="btn btn-primary" onClick={onExport}>
+      <button type="button" className="btn btn-primary drive-action-btn" onClick={onExport}>
+        <LocalActionIcon type="save" />
         {exportLabel}
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost drive-action-btn"
+        onClick={() => inputRef.current?.click()}
+      >
+        <LocalActionIcon type="load" />
+        {importLabel}
       </button>
     </div>
   )

@@ -179,7 +179,10 @@ button {
 }
 
 .csv-controls.settings {
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 190px;
 }
 
 .theme-toggle {
@@ -310,11 +313,57 @@ button {
   font-weight: 800;
 }
 
+.settings-section-head h4.drive-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.drive-icon {
+  width: 18px;
+  height: 16px;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 1px 1px rgba(15, 23, 42, 0.12));
+}
+
 .settings-section-actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.drive-section {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.drive-section-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.drive-action-btn {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.drive-action-btn svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 auto;
 }
 
 .stage-manager-list {
@@ -2396,6 +2445,319 @@ td.memo {
   .settings-section-actions,
   .csv-controls.settings {
     justify-content: flex-start;
+  }
+}
+
+@media (max-width: 520px) {
+  .app {
+    padding: 0 12px 44px;
+  }
+
+  .app-header {
+    gap: 10px;
+    padding: 12px 0 10px;
+  }
+
+  .app-title h1 {
+    font-size: 21px;
+  }
+
+  .app-title span {
+    font-size: 12px;
+  }
+
+  .header-actions {
+    gap: 6px;
+  }
+
+  .theme-toggle {
+    height: 34px;
+    padding-right: 9px;
+  }
+
+  .settings-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .tabs {
+    gap: 4px;
+    padding: 5px;
+    border-radius: 12px;
+  }
+
+  .tab {
+    padding: 8px 11px;
+    font-size: 13px;
+  }
+
+  .stage {
+    margin-top: 14px;
+  }
+
+  .card,
+  .stat-card,
+  .chart-card {
+    padding: 14px;
+    border-radius: 12px;
+  }
+
+  .chart-card {
+    padding-bottom: 6px;
+  }
+
+  .stat-grid,
+  .chart-grid {
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .stat-card .value {
+    font-size: 19px;
+    overflow-wrap: anywhere;
+  }
+
+  .entry-form,
+  .entry-form.expense-form,
+  .invest-form {
+    --entry-control-height: 40px;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .invest-form .field-wide {
+    grid-column: auto;
+  }
+
+  .field input,
+  .field select,
+  .payment-form input,
+  .category-form input,
+  .picker-button,
+  .calendar-button {
+    font-size: 16px;
+  }
+
+  .field input,
+  .field select,
+  .payment-form input,
+  .category-form input,
+  .picker,
+  .picker-button,
+  .calendar-input,
+  .calendar-button {
+    min-height: 40px;
+  }
+
+  .picker,
+  .picker-button,
+  .calendar-input,
+  .calendar-button {
+    height: 40px;
+    max-height: 40px;
+  }
+
+  .entry-form .form-actions,
+  .invest-form .form-actions {
+    grid-column: auto;
+  }
+
+  .entry-form .form-actions .btn,
+  .invest-form .form-actions .btn,
+  .settings-section-actions .btn,
+  .csv-controls.settings .btn {
+    min-height: 40px;
+  }
+
+  .form-card-head,
+  .management-head,
+  .invest-toolbar,
+  .chart-head {
+    display: flex;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .form-card-actions,
+  .settings-section-actions,
+  .drive-section-actions,
+  .csv-controls.settings,
+  .toggle {
+    width: 100%;
+  }
+
+  .drive-section-actions {
+    align-items: stretch;
+  }
+
+  .form-card-actions .btn,
+  .settings-section-actions .btn,
+  .csv-controls.settings .btn,
+  .toggle button {
+    flex: 1;
+  }
+
+  .month-picker {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .calendar-menu,
+  .calendar-menu.month,
+  .calendar-menu.year {
+    width: min(252px, calc(100vw - 48px));
+  }
+
+  .picker-menu {
+    max-height: min(240px, 45vh);
+  }
+
+  .month-picker .calendar-menu {
+    left: 0;
+    right: auto;
+  }
+
+  .fixed-modal-backdrop {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .fixed-modal {
+    max-height: calc(100dvh - 20px);
+    overflow: auto;
+    padding: 16px;
+    border-radius: 14px 14px 10px 10px;
+  }
+
+  .settings-section {
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .category-form,
+  .payment-form-actions,
+  .fixed-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .category-form .btn,
+  .payment-form-actions .btn {
+    min-height: 40px;
+  }
+
+  .fixed-summary {
+    align-items: flex-start;
+    margin-left: 0;
+  }
+
+  .fixed-widget-form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .fixed-color-swatches {
+    grid-template-columns: repeat(5, 1fr);
+  }
+
+  .seg button {
+    min-height: 38px;
+  }
+
+  .table-wrap {
+    overflow: visible;
+  }
+
+  .ledger-table,
+  .ledger-table thead,
+  .ledger-table tbody,
+  .ledger-table tr,
+  .ledger-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .ledger-table thead {
+    display: none;
+  }
+
+  .ledger-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .ledger-table tbody tr {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 8px 10px;
+    background: var(--surface-2);
+  }
+
+  .ledger-table tbody td {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 0;
+    white-space: normal;
+  }
+
+  .ledger-table tbody td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .ledger-table td.amount {
+    text-align: left;
+  }
+
+  .ledger-table td:last-child {
+    display: block;
+    padding-top: 9px;
+  }
+
+  .ledger-table td:last-child::before {
+    display: none;
+  }
+
+  .ledger-table .row-actions {
+    justify-content: flex-end;
+  }
+
+  .app-footer {
+    line-height: 1.5;
+  }
+}
+
+@media (max-width: 380px) {
+  .app {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .theme-toggle {
+    padding: 4px 5px;
+  }
+
+  .theme-toggle-label {
+    display: none;
+  }
+
+  .drive-action-btn {
+    gap: 4px;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .drive-action-btn svg {
+    display: none;
+  }
+
+  .app-title span {
+    max-width: 190px;
   }
 }
 

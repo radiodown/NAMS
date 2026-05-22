@@ -12,6 +12,43 @@ import { importDocument } from '../lib/store'
 
 // Google Drive backup controls — connect a Google account, then save/load the
 // nams-store document to a single file in the user's Drive.
+function GoogleDriveIcon() {
+  return (
+    <svg className="drive-icon" viewBox="0 0 24 21" aria-hidden="true">
+      <path fill="#34a853" d="M8.1 0h7.8l8.1 14h-7.8L8.1 0Z" />
+      <path fill="#fbbc04" d="M8.1 0 0 14l3.9 7L12 7 8.1 0Z" />
+      <path fill="#4285f4" d="M3.9 21h16.2l3.9-7H7.8l-3.9 7Z" />
+    </svg>
+  )
+}
+
+function DriveActionIcon({ type }) {
+  if (type === 'save') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3v12" />
+        <path d="m7 8 5-5 5 5" />
+        <path d="M5 15v4h14v-4" />
+      </svg>
+    )
+  }
+  if (type === 'load') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 21V9" />
+        <path d="m7 16 5 5 5-5" />
+        <path d="M5 9V5h14v4" />
+      </svg>
+    )
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.07 0l2.12-2.12a5 5 0 0 0-7.07-7.07L11 4.93" />
+      <path d="M14 11a5 5 0 0 0-7.07 0L4.81 13.12a5 5 0 0 0 7.07 7.07L13 19.07" />
+    </svg>
+  )
+}
+
 export default function DriveBackup() {
   const configured = isConfigured()
   const savedConnection = configured ? getSavedConnection() : null
@@ -27,24 +64,28 @@ export default function DriveBackup() {
   if (!configured) {
     return (
       <div className="drive-backup">
-        <section className="settings-section">
+        <section className="settings-section drive-section">
           <div className="settings-section-head">
-            <h4>구글 연동</h4>
+            <h4 className="drive-title">
+              <GoogleDriveIcon />
+              구글 드라이브 연동
+            </h4>
+            <p className="drive-hint">
+              <code>.env.local</code>에 <code>VITE_GOOGLE_CLIENT_ID</code>를 설정하세요.
+            </p>
           </div>
-          <p className="drive-hint">
-            <code>.env.local</code>에 <code>VITE_GOOGLE_CLIENT_ID</code>를 설정하세요.
-          </p>
-        </section>
-        <section className="settings-section">
-          <div className="settings-section-head">
-            <h4>구글드라이브 저장/불러오기</h4>
-          </div>
-          <div className="settings-section-actions">
-            <button className="btn btn-primary" disabled>
-              드라이브 저장
+          <div className="drive-section-actions">
+            <button className="btn drive-action-btn" disabled>
+              <DriveActionIcon type="connect" />
+              연결
             </button>
-            <button className="btn" disabled>
-              드라이브 불러오기
+            <button className="btn btn-primary drive-action-btn" disabled>
+              <DriveActionIcon type="save" />
+              저장
+            </button>
+            <button className="btn drive-action-btn" disabled>
+              <DriveActionIcon type="load" />
+              불러오기
             </button>
           </div>
         </section>
@@ -113,42 +154,51 @@ export default function DriveBackup() {
 
   return (
     <div className="drive-backup">
-      <section className="settings-section">
+      <section className="settings-section drive-section">
         <div className="settings-section-head">
-          <h4>구글 연동</h4>
+          <h4 className="drive-title">
+            <GoogleDriveIcon />
+            구글 드라이브 연동
+          </h4>
           {connected ? (
             <span className="drive-backup-acct">{email ? `${email} 연결됨` : '연결됨'}</span>
           ) : null}
         </div>
-        {connected ? (
-          <div className="settings-section-actions">
-            <button className="btn btn-sm" onClick={handleDisconnect} disabled={Boolean(busy)}>
-              연결 해제
+        <div className="drive-section-actions">
+          {connected ? (
+            <button
+              className="btn drive-action-btn"
+              onClick={handleDisconnect}
+              disabled={Boolean(busy)}
+            >
+              <DriveActionIcon type="connect" />
+              해제
             </button>
-          </div>
-        ) : (
-          <div className="settings-section-actions">
-            <button className="btn" onClick={handleConnect} disabled={busy === 'connect'}>
-              {busy === 'connect' ? '연결 중…' : '구글 드라이브 연결'}
+          ) : (
+            <button
+              className="btn drive-action-btn"
+              onClick={handleConnect}
+              disabled={busy === 'connect'}
+            >
+              <DriveActionIcon type="connect" />
+              {busy === 'connect' ? '연결 중' : '연결'}
             </button>
-          </div>
-        )}
-      </section>
-
-      <section className="settings-section">
-        <div className="settings-section-head">
-          <h4>구글드라이브 저장/불러오기</h4>
-        </div>
-        <div className="settings-section-actions">
+          )}
           <button
-            className="btn btn-primary"
+            className="btn btn-primary drive-action-btn"
             onClick={handleSave}
             disabled={!connected || Boolean(busy)}
           >
-            {busy === 'save' ? '저장 중…' : '드라이브 저장'}
+            <DriveActionIcon type="save" />
+            {busy === 'save' ? '저장 중' : '저장'}
           </button>
-          <button className="btn" onClick={handleLoad} disabled={!connected || Boolean(busy)}>
-            {busy === 'load' ? '불러오는 중…' : '드라이브 불러오기'}
+          <button
+            className="btn drive-action-btn"
+            onClick={handleLoad}
+            disabled={!connected || Boolean(busy)}
+          >
+            <DriveActionIcon type="load" />
+            {busy === 'load' ? '불러오는 중' : '불러오기'}
           </button>
         </div>
       </section>
