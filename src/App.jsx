@@ -14,6 +14,11 @@ import SummaryStage from './components/SummaryStage'
 import SettingsModal from './components/SettingsModal'
 import { usePersistentState, exportDocument, importDocument } from './lib/store'
 import { STAGE_TABS as TABS, normalizeStageConfig, defaultStageConfig } from './lib/schema'
+import {
+  isConfigured as isDriveConfigured,
+  getSavedConnection,
+  saveBackup as saveDriveBackup,
+} from './lib/googleDrive'
 
 const TAB_COLOR = {
   수입: STAGE_META.수입.color,
@@ -275,6 +280,33 @@ export default function App() {
       .forEach((key) => localStorage.removeItem(key))
     window.location.reload()
   }
+
+  useEffect(() => {
+    let saving = false
+
+    function handleShortcut(e) {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's') return
+      e.preventDefault()
+      if (saving) return
+
+      if (isDriveConfigured() && getSavedConnection()?.connected) {
+        saving = true
+        saveDriveBackup()
+          .catch((error) => {
+            alert(`구글 드라이브 저장 실패: ${error?.message || error}`)
+          })
+          .finally(() => {
+            saving = false
+          })
+        return
+      }
+
+      exportJSON()
+    }
+
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [])
 
   return (
     <div className="app">
