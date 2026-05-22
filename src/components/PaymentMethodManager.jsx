@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { formatKRW } from '../lib/format'
+import { parseNumberInput } from '../lib/numberInput'
+import NumberInput from './NumberInput'
 import Picker from './Picker'
 
 const blankForm = () => ({ id: '', name: '', kind: '신용카드', annualFee: '', monthlyLimit: '', monthlyTarget: '' })
@@ -31,9 +33,9 @@ export default function PaymentMethodManager({
     const payload = {
       name,
       kind: form.kind,
-      annualFee: form.annualFee === '' ? '' : Number(form.annualFee) || 0,
-      monthlyLimit: form.monthlyLimit === '' ? '' : Number(form.monthlyLimit) || 0,
-      monthlyTarget: form.monthlyTarget === '' ? '' : Number(form.monthlyTarget) || 0,
+      annualFee: form.annualFee === '' ? '' : parseNumberInput(form.annualFee) || 0,
+      monthlyLimit: form.monthlyLimit === '' ? '' : parseNumberInput(form.monthlyLimit) || 0,
+      monthlyTarget: form.monthlyTarget === '' ? '' : parseNumberInput(form.monthlyTarget) || 0,
     }
     if (editing) updateMethod?.(form.id, payload)
     else addMethod(payload)
@@ -81,32 +83,32 @@ export default function PaymentMethodManager({
         </div>
         <div className="payment-field">
           <span>월 한도</span>
-          <input
-            type="number"
+          <NumberInput
             min="0"
+            decimal={false}
             placeholder="0"
             value={form.monthlyLimit}
-            onChange={(e) => set('monthlyLimit', e.target.value)}
+            onChange={(value) => set('monthlyLimit', value)}
           />
         </div>
         <div className="payment-field">
           <span>연회비</span>
-          <input
-            type="number"
+          <NumberInput
             min="0"
+            decimal={false}
             placeholder="0"
             value={form.annualFee}
-            onChange={(e) => set('annualFee', e.target.value)}
+            onChange={(value) => set('annualFee', value)}
           />
         </div>
         <div className="payment-field">
           <span>월 실적</span>
-          <input
-            type="number"
+          <NumberInput
             min="0"
+            decimal={false}
             placeholder="0"
             value={form.monthlyTarget}
-            onChange={(e) => set('monthlyTarget', e.target.value)}
+            onChange={(value) => set('monthlyTarget', value)}
           />
         </div>
         <div className="payment-form-actions">

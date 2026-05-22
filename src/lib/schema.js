@@ -52,7 +52,12 @@ export function normalizeEntry(entry) {
 }
 
 // --- investments ------------------------------------------------------------
-const INVEST_KINDS = ['예금', '적금', '주식']
+const INVEST_KINDS = ['예금', '적금', '주식', '환율']
+
+function currencyCode(value, fallback = 'KRW') {
+  const code = str(value || fallback).toUpperCase().replace(/[^A-Z]/g, '')
+  return code || fallback
+}
 
 export function normalizeInvestment(product) {
   const kind = INVEST_KINDS.includes(str(product?.kind)) ? str(product.kind) : '예금'
@@ -62,16 +67,33 @@ export function normalizeInvestment(product) {
     name: str(product?.name) || '(이름 없음)',
     date: str(product?.date),
     memo: str(product?.memo),
+    color: str(product?.color),
   }
   if (kind === '주식') {
     return {
       ...base,
       shares: num(product?.shares),
       buyPrice: num(product?.buyPrice),
+      currency: currencyCode(product?.currency || product?.quoteCurrency),
       quoteSymbol: str(product?.quoteSymbol || product?.symbol),
       quoteCurrency: str(product?.quoteCurrency),
       quoteTime: str(product?.quoteTime),
       currentPrice: num(product?.currentPrice),
+      exchangeRate: num(product?.exchangeRate),
+      exchangeRateTime: str(product?.exchangeRateTime),
+    }
+  }
+  if (kind === '환율') {
+    const baseCurrency = currencyCode(product?.baseCurrency || product?.currency || product?.name, 'USD')
+    const targetCurrency = currencyCode(product?.targetCurrency, 'KRW')
+    return {
+      ...base,
+      name: str(product?.name) || `${baseCurrency}/${targetCurrency}`,
+      baseCurrency,
+      targetCurrency,
+      quoteSymbol: str(product?.quoteSymbol),
+      currentRate: num(product?.currentRate || product?.rate),
+      quoteTime: str(product?.quoteTime),
     }
   }
   const interest = {

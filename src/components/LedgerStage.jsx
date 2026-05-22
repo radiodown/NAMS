@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { STAGE_META } from '../lib/categories'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
 import { isLoanInterestCategory } from '../lib/loanInterest'
+import { parseNumberInput } from '../lib/numberInput'
 import CalendarInput from './CalendarInput'
 import FixedExpenses from './FixedExpenses'
 import LoanInterestCalculator from './LoanInterestCalculator'
+import NumberInput from './NumberInput'
 import PaymentMethodManager from './PaymentMethodManager'
 import Picker from './Picker'
 
@@ -174,7 +176,7 @@ export default function LedgerStage({
 
   function submit(e) {
     e.preventDefault()
-    const amount = Number(form.amount)
+    const amount = parseNumberInput(form.amount)
     if (!form.date) {
       alert('날짜를 입력하세요.')
       return
@@ -363,14 +365,13 @@ export default function LedgerStage({
           )}
           <div className="field">
             <label>금액 (원)</label>
-            <input
-              type="number"
+            <NumberInput
               min="0"
               step="1"
-              inputMode="numeric"
+              decimal={false}
               placeholder="0"
               value={form.amount}
-              onChange={(e) => set('amount', e.target.value)}
+              onChange={(value) => set('amount', value)}
             />
           </div>
           {loanInterestMode && (

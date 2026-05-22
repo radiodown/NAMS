@@ -1,4 +1,4 @@
-// Investment-product math: 예금(lump deposit), 적금(installment savings), 주식(stocks).
+// Investment-product math: 예금(lump deposit), 적금(installment savings), 주식(stocks), 환율(FX).
 
 function parseYMD(s) {
   const [y, m, d] = String(s || '').split('-').map(Number)
@@ -94,18 +94,56 @@ export function savingsMetrics(p, today) {
   }
 }
 
-// 주식: valuation from fetched prices, falling back to buy price until the first quote arrives.
-export function stockMetrics(p) {
+function currencyCode(value, fallback = 'KRW') {
+  const code = String(value || fallback).trim().toUpperCase().replace(/[^A-Z]/g, '')
+  return code || fallback
+}
+
+export function exchangeRateMetrics(p) {
+  const baseCurrency = currencyCode(p.baseCurrency || p.currency || 'USD', 'USD')
+  const targetCurrency = currencyCode(p.targetCurrency || 'KRW')
+  const rate = Number(p.currentRate || p.rate) || 0
+  return {
+    kind: '환율',
+    baseCurrency,
+    targetCurrency,
+    rate,
+    cost: 0,
+    current: 0,
+    profit: 0,
+  }
+}
+
+export function exchangeRateMap(products) {
+  const rates = { KRW: 1 }
+  for (const p of products || []) {
+    if (p?.kind !== '환율') continue
+    const m = exchangeRateMetrics(p)
+    if (m.rate <= 0) continue
+    if (m.targetCurrency === 'KRW') rates[m.baseCurrency] = m.rate
+    if (m.baseCurrency === 'KRW') rates[m.targetCurrency] = 1 / m.rate
+  }
+  return rates
+}
+
+// 주식: valuation from fetched prices, converted to KRW with a widget rate or auto-fetched stock rate.
+export function stockMetrics(p, rates = {}) {
   const shares = Number(p.shares) || 0
   const buy = Number(p.buyPrice) || 0
   const cur = Number(p.currentPrice) || buy
-  const cost = shares * buy
-  const value = shares * cur
+  const currency = currencyCode(p.quoteCurrency || p.currency)
+  const exchangeRate = currency === 'KRW' ? 1 : Number(rates[currency] || p.exchangeRate) || 0
+  const cost = shares * buy * exchangeRate
+  const value = shares * cur * exchangeRate
   return {
     kind: '주식',
     shares,
     buyPrice: buy,
     currentPrice: cur,
+    currency,
+    exchangeRate,
+    costInCurrency: shares * buy,
+    currentInCurrency: shares * cur,
     cost,
     current: value,
     profit: value - cost,
@@ -113,19 +151,21 @@ export function stockMetrics(p) {
   }
 }
 
-export function productMetrics(p, today) {
+export function productMetrics(p, today, rates = {}) {
   if (p.kind === '예금') return depositMetrics(p, today)
   if (p.kind === '적금') return savingsMetrics(p, today)
-  return stockMetrics(p)
+  if (p.kind === '환율') return exchangeRateMetrics(p)
+  return stockMetrics(p, rates)
 }
 
 // Totals across all products, plus per-kind current valuation.
 export function summarize(products, today) {
+  const rates = exchangeRateMap(products)
   let cost = 0
   let current = 0
-  const byKind = { 예금: 0, 적금: 0, 주식: 0 }
+  const byKind = { 예금: 0, 적금: 0, 주식: 0, 환율: 0 }
   for (const p of products) {
-    const m = productMetrics(p, today)
+    const m = productMetrics(p, today, rates)
     cost += m.cost
     current += m.current
     byKind[p.kind] = (byKind[p.kind] || 0) + m.current
@@ -135,6 +175,7 @@ export function summarize(products, today) {
 
 // Monthly total-asset projection: cash held flat, 예금/적금 grow, 주식 held flat.
 export function projectAssets(products, cash, today, horizonMonths) {
+  const rates = exchangeRateMap(products)
   const deposits = products
     .filter((p) => p.kind === '예금')
     .map((p) => depositMetrics(p, today))
@@ -143,7 +184,7 @@ export function projectAssets(products, cash, today, horizonMonths) {
     .map((p) => savingsMetrics(p, today))
   const stockTotal = products
     .filter((p) => p.kind === '주식')
-    .reduce((s, p) => s + stockMetrics(p).current, 0)
+    .reduce((s, p) => s + stockMetrics(p, rates).current, 0)
 
   const points = []
   for (let t = 0; t <= horizonMonths; t++) {

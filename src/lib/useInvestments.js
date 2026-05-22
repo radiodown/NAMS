@@ -3,7 +3,7 @@ import { createId } from './id'
 import { normalizeInvestment } from './schema'
 import { usePersistentState } from './store'
 
-// Investment products: 예금 / 적금 / 주식. Each has a `kind` and kind-specific fields.
+// Investment products: 예금 / 적금 / 주식 / 환율. Each has a `kind` and kind-specific fields.
 export function useInvestments() {
   const [items, setItems] = usePersistentState('stages.investment.products', [])
 
@@ -30,6 +30,22 @@ export function useInvestments() {
     [setItems]
   )
 
+  // Move the `fromId` product into the slot held by `toId`, shifting the rest.
+  const moveItem = useCallback(
+    (fromId, toId) => {
+      setItems((prev) => {
+        const from = prev.findIndex((it) => it.id === fromId)
+        const to = prev.findIndex((it) => it.id === toId)
+        if (from < 0 || to < 0 || from === to) return prev
+        const next = [...prev]
+        const [moved] = next.splice(from, 1)
+        next.splice(to, 0, moved)
+        return next
+      })
+    },
+    [setItems]
+  )
+
   const replaceAll = useCallback(
     (next) => {
       setItems(Array.isArray(next) ? next.map(normalizeInvestment) : [])
@@ -37,5 +53,5 @@ export function useInvestments() {
     [setItems]
   )
 
-  return { items, addItem, updateItem, removeItem, replaceAll }
+  return { items, addItem, updateItem, removeItem, moveItem, replaceAll }
 }

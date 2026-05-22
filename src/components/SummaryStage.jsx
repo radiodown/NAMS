@@ -23,7 +23,7 @@ const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
   '#8b5cf6', '#14b8a6', '#f97316', '#84cc16', '#06b6d4', '#a855f7',
 ]
-const KIND_COLORS = { 예금: '#0891b2', 적금: '#4f46e5', 주식: '#d97706' }
+const KIND_COLORS = { 예금: '#0891b2', 적금: '#4f46e5', 주식: '#d97706', 환율: '#059669' }
 const HORIZONS = [
   { label: '1년', months: 12 },
   { label: '3년', months: 36 },

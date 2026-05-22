@@ -5,6 +5,18 @@ export function normalizeStockSymbol(value) {
   return symbol
 }
 
+export function normalizeCurrencyCode(value, fallback = '') {
+  const code = String(value || fallback).trim().toUpperCase().replace(/[^A-Z]/g, '')
+  return code || fallback
+}
+
+export function normalizeExchangeSymbol(base, target = 'KRW') {
+  const baseCurrency = normalizeCurrencyCode(base)
+  const targetCurrency = normalizeCurrencyCode(target, 'KRW')
+  if (!baseCurrency || !targetCurrency) return ''
+  return `${baseCurrency}${targetCurrency}=X`
+}
+
 function yahooChartUrl(symbol) {
   const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`
   const local =
@@ -14,9 +26,8 @@ function yahooChartUrl(symbol) {
   return local ? `/api/yahoo${path}` : `https://query1.finance.yahoo.com${path}`
 }
 
-export async function fetchStockQuote(input) {
-  const symbol = normalizeStockSymbol(input)
-  if (!symbol) throw new Error('종목 코드가 없습니다.')
+async function fetchYahooQuote(symbol, emptyMessage) {
+  if (!symbol) throw new Error(emptyMessage)
 
   const res = await fetch(yahooChartUrl(symbol))
   if (!res.ok) throw new Error(`시세 조회 실패 (${res.status})`)
@@ -33,4 +44,12 @@ export async function fetchStockQuote(input) {
     currency: meta?.currency || '',
     time: seconds ? new Date(seconds * 1000).toISOString() : new Date().toISOString(),
   }
+}
+
+export async function fetchStockQuote(input) {
+  return fetchYahooQuote(normalizeStockSymbol(input), '종목 코드가 없습니다.')
+}
+
+export async function fetchExchangeRate(base, target = 'KRW') {
+  return fetchYahooQuote(normalizeExchangeSymbol(base, target), '통화 코드가 없습니다.')
 }

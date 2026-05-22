@@ -3,7 +3,9 @@ import { STAGE_META } from '../lib/categories'
 import { formatKRW } from '../lib/format'
 import { createId } from '../lib/id'
 import { isLoanInterestCategory } from '../lib/loanInterest'
+import { parseNumberInput } from '../lib/numberInput'
 import LoanInterestCalculator from './LoanInterestCalculator'
+import NumberInput from './NumberInput'
 import Picker from './Picker'
 import PlusIcon from './PlusIcon'
 
@@ -277,7 +279,7 @@ export default function FixedExpenses({
 
   function submitForm(e) {
     e.preventDefault()
-    const amount = Number(form.amount)
+    const amount = parseNumberInput(form.amount)
     if (!form.name.trim()) {
       alert('항목명을 입력하세요.')
       return
@@ -286,7 +288,7 @@ export default function FixedExpenses({
       alert('금액을 0보다 큰 값으로 입력하세요.')
       return
     }
-    const day = form.day === '' ? '' : Math.min(Math.max(Number(form.day) || 1, 1), 31)
+    const day = form.day === '' ? '' : Math.min(Math.max(parseNumberInput(form.day) || 1, 1), 31)
     const payload = {
       name: form.name.trim(),
       category: form.category.trim() || '기타',
@@ -734,26 +736,24 @@ export default function FixedExpenses({
                   <div className="fixed-widget-form-row">
                     <div className="field">
                       <label>결제일</label>
-                      <input
-                        type="number"
+                      <NumberInput
                         min="1"
                         max="31"
-                        inputMode="numeric"
+                        decimal={false}
                         placeholder="25"
                         value={form.day}
-                        onChange={(e) => set('day', e.target.value)}
+                        onChange={(value) => set('day', value)}
                       />
                     </div>
                     <div className="field">
                       <label>금액</label>
-                      <input
-                        type="number"
+                      <NumberInput
                         min="0"
                         step="1"
-                        inputMode="numeric"
+                        decimal={false}
                         placeholder="0"
                         value={form.amount}
-                        onChange={(e) => set('amount', e.target.value)}
+                        onChange={(value) => set('amount', value)}
                       />
                     </div>
                   </div>

@@ -1,3 +1,5 @@
+import { parseNumberInput } from './numberInput'
+
 export const LOAN_INTEREST_CATEGORY = '대출이자'
 export const LOAN_REPAYMENT_METHODS = [
   '만기일시상환',
@@ -19,7 +21,7 @@ export function normalizeLoanMethod(value) {
 }
 
 function positiveInt(value, fallback) {
-  const n = Math.floor(Number(value))
+  const n = Math.floor(parseNumberInput(value))
   return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
@@ -52,13 +54,13 @@ function equalPayment(principal, monthlyRate, months, round) {
 }
 
 export function calculateLoanPayment({ principal, rate, months, round, method, graceMonths }) {
-  const p = Number(principal) || 0
-  const monthlyRate = ((Number(rate) || 0) / 100) / 12
+  const p = parseNumberInput(principal) || 0
+  const monthlyRate = ((parseNumberInput(rate) || 0) / 100) / 12
   const totalMonths = positiveInt(months, 1)
   const currentRound = clamp(positiveInt(round, 1), 1, totalMonths)
   const repaymentMethod = normalizeLoanMethod(method)
   const grace = repaymentMethod === '거치 후 원리금균등상환'
-    ? clamp(Math.floor(Number(graceMonths) || 0), 0, totalMonths - 1)
+    ? clamp(Math.floor(parseNumberInput(graceMonths) || 0), 0, totalMonths - 1)
     : 0
 
   if (p <= 0) {

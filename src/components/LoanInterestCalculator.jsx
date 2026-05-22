@@ -4,6 +4,7 @@ import {
   normalizeLoanMethod,
 } from '../lib/loanInterest'
 import { formatKRW } from '../lib/format'
+import NumberInput from './NumberInput'
 
 export default function LoanInterestCalculator({
   principal,
@@ -45,62 +46,57 @@ export default function LoanInterestCalculator({
       </div>
       <div className="field">
         <label>대출원금 (원)</label>
-        <input
-          type="number"
+        <NumberInput
           min="0"
           step="1"
-          inputMode="numeric"
+          decimal={false}
           placeholder="0"
           value={principal}
-          onChange={(e) => onChange('loanPrincipal', e.target.value)}
+          onChange={(value) => onChange('loanPrincipal', value)}
         />
       </div>
       <div className="field">
         <label>연이율 (%)</label>
-        <input
-          type="number"
+        <NumberInput
           min="0"
           step="0.01"
           placeholder="예: 4.5"
           value={rate}
-          onChange={(e) => onChange('loanRate', e.target.value)}
+          onChange={(value) => onChange('loanRate', value)}
         />
       </div>
       <div className="field">
         <label>기간 (개월)</label>
-        <input
-          type="number"
+        <NumberInput
           min="1"
           step="1"
-          inputMode="numeric"
+          decimal={false}
           placeholder="1"
           value={months}
-          onChange={(e) => onChange('loanMonths', e.target.value)}
+          onChange={(value) => onChange('loanMonths', value)}
         />
       </div>
       <div className="field">
         <label>현재회차</label>
-        <input
-          type="number"
+        <NumberInput
           min="1"
           step="1"
-          inputMode="numeric"
+          decimal={false}
           placeholder="1"
           value={round}
-          onChange={(e) => onChange('loanRound', e.target.value)}
+          onChange={(value) => onChange('loanRound', value)}
         />
       </div>
       {showGrace && (
         <div className="field">
           <label>거치개월</label>
-          <input
-            type="number"
+          <NumberInput
             min="0"
             step="1"
-            inputMode="numeric"
+            decimal={false}
             placeholder="0"
             value={graceMonths}
-            onChange={(e) => onChange('loanGraceMonths', e.target.value)}
+            onChange={(value) => onChange('loanGraceMonths', value)}
           />
         </div>
       )}

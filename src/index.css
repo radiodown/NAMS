@@ -1939,6 +1939,13 @@ td.memo {
   overflow: auto;
 }
 
+.invest-buy-preview {
+  align-self: center;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .invest-toolbar {
   display: flex;
   align-items: center;
@@ -2077,6 +2084,64 @@ td.memo {
 
 .invest-card.editing {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+/* ---------- invest card — drag-and-drop / touch reordering ---------- */
+.invest-card[draggable='true'] {
+  cursor: grab;
+}
+
+.invest-card[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.invest-card.dragging {
+  opacity: 0.4;
+}
+
+.invest-card.drop-target {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: 1px;
+}
+
+/* Suppress the mobile text-selection / callout a long-press would trigger,
+   so the press can be used to pick a card up instead. */
+.invest-card {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The pill that follows the finger while a touch reorder is in progress. */
+.invest-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 120;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.3);
+  transform: translate(-9999px, -9999px);
+}
+
+.invest-drag-ghost-kind {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--accent);
+}
+
+.invest-drag-ghost-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .invest-card-head {
