@@ -270,7 +270,7 @@ export default function App() {
   function clearStoredData() {
     if (!window.confirm('저장된 모든 데이터를 삭제할까요?')) return
     Object.keys(localStorage)
-      .filter((key) => key.startsWith('wal-'))
+      .filter((key) => key.startsWith('nams-'))
       .forEach((key) => localStorage.removeItem(key))
     window.location.reload()
   }
@@ -279,7 +279,7 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <div className="app-title">
-          <h1>가계부</h1>
+          <h1>NAMS</h1>
           <span>{visibleTabs.join(' · ')}</span>
         </div>
         <div className="header-actions">

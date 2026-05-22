@@ -1,44 +1,18 @@
 // Single source of truth for everything persisted to localStorage.
 //
-// The whole app state lives in one versioned JSON document under `wal-store`.
+// The whole app state lives in one versioned JSON document under `nams-store`.
 // Hooks read/write slices of it through `usePersistentState`, replacing the
-// per-hook load/save boilerplate. Legacy single-purpose keys are migrated once
-// and then left untouched as a rollback safety net.
+// per-hook load/save boilerplate.
 import { useEffect, useState } from 'react'
-import { SCHEMA_VERSION, buildDefaultDoc, normalizeDoc, defaultMethods } from './schema'
+import { buildDefaultDoc, normalizeDoc } from './schema'
 
-const STORE_KEY = 'wal-store'
-
-// Pre-standardization keys — read once during migration, never written again.
-const LEGACY = {
-  entries: 'wal-ledger-entries',
-  investments: 'wal-investments',
-  methods: 'wal-payment-methods',
-  categories: 'wal-categories',
-  fixedTemplates: 'wal-fixed-expenses',
-  fixedRecords: 'wal-fixed-expense-records',
-  fixedMonths: 'wal-fixed-expense-record-months',
-  fixedLastMonth: 'wal-fixed-expense-last-active-month',
-  stageYaml: 'wal-stage-config-yaml',
-  themeYaml: 'wal-theme-settings-yaml',
-}
+const STORE_KEY = 'nams-store'
 
 function readRaw(key) {
   try {
     return localStorage.getItem(key)
   } catch {
     return null
-  }
-}
-
-function readJSON(key, fallback) {
-  const raw = readRaw(key)
-  if (!raw) return fallback
-  try {
-    const value = JSON.parse(raw)
-    return value == null ? fallback : value
-  } catch {
-    return fallback
   }
 }
 
@@ -50,72 +24,6 @@ function persist(next) {
   }
 }
 
-function hasLegacyData() {
-  return Object.values(LEGACY).some((key) => readRaw(key) != null)
-}
-
-// The old stage config was a hand-rolled YAML string.
-function parseLegacyStages(text) {
-  const stages = []
-  let current = null
-  String(text || '')
-    .split(/\r?\n/)
-    .forEach((line) => {
-      const trimmed = line.trim()
-      if (trimmed.startsWith('- name:')) {
-        if (current) stages.push(current)
-        current = { name: trimmed.slice('- name:'.length).trim(), visible: true }
-      } else if (trimmed.startsWith('visible:') && current) {
-        current.visible = trimmed.slice('visible:'.length).trim() !== 'false'
-      }
-    })
-  if (current) stages.push(current)
-  return stages
-}
-
-function parseLegacyTheme(text) {
-  const line = String(text || '')
-    .split(/\r?\n/)
-    .find((item) => item.trim().startsWith('theme:'))
-  return line?.split(':').slice(1).join(':').trim() === 'dark' ? 'dark' : 'light'
-}
-
-// Assemble a v1 document from the legacy keys, then let normalizeDoc clean it.
-function migrateFromLegacy() {
-  const income = []
-  const expense = []
-  readJSON(LEGACY.entries, []).forEach((entry) => {
-    if (!entry || entry.fixedId) return // drop stale virtual fixed-expense rows
-    ;(entry.type === '수입' ? income : expense).push(entry)
-  })
-
-  const categories = readJSON(LEGACY.categories, {}) || {}
-  const methods = readJSON(LEGACY.methods, null)
-
-  return normalizeDoc({
-    schemaVersion: SCHEMA_VERSION,
-    settings: {
-      theme: parseLegacyTheme(readRaw(LEGACY.themeYaml)),
-      stages: parseLegacyStages(readRaw(LEGACY.stageYaml)),
-    },
-    stages: {
-      income: { categories: categories.수입, entries: income },
-      expense: {
-        categories: categories.지출,
-        paymentMethods: methods == null ? defaultMethods() : methods,
-        entries: expense,
-        fixed: {
-          templates: readJSON(LEGACY.fixedTemplates, []),
-          records: readJSON(LEGACY.fixedRecords, []),
-          closedMonths: readJSON(LEGACY.fixedMonths, []),
-          lastActiveMonth: readRaw(LEGACY.fixedLastMonth) || '',
-        },
-      },
-      investment: { products: readJSON(LEGACY.investments, []) },
-    },
-  })
-}
-
 function initDoc() {
   const raw = readRaw(STORE_KEY)
   if (raw) {
@@ -125,7 +33,7 @@ function initDoc() {
       // corrupt store — fall through and rebuild
     }
   }
-  const doc = hasLegacyData() ? migrateFromLegacy() : buildDefaultDoc()
+  const doc = buildDefaultDoc()
   persist(doc)
   return doc
 }

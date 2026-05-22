@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 
-// Backup controls: export the whole wal-store document as raw JSON, and
+// Backup controls: export the whole nams-store document as raw JSON, and
 // restore it by importing a JSON file.
 export default function DataControls({ onExport, onImport, variant = 'compact' }) {
   const inputRef = useRef(null)

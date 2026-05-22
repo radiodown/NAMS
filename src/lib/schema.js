@@ -1,4 +1,4 @@
-// Canonical shapes + normalizers for the single versioned `wal-store` document.
+// Canonical shapes + normalizers for the single versioned `nams-store` document.
 // Everything persisted to localStorage flows through here so the on-disk format
 // stays consistent and is straightforward to export later.
 import { STAGE_META } from './categories'
