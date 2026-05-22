@@ -684,6 +684,59 @@ button {
   grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
 }
 
+.loan-interest-calculator {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.loan-interest-calculator input[readonly] {
+  color: var(--accent);
+  font-weight: 800;
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.loan-interest-result {
+  grid-column: 1 / -1;
+  min-height: var(--entry-control-height, 34px);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.loan-payment-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.loan-payment-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.loan-payment-summary b {
+  color: var(--accent);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+.loan-interest-result .btn {
+  white-space: nowrap;
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -1539,6 +1592,11 @@ td.memo {
   text-overflow: ellipsis;
 }
 
+.fixed-widget-cat .mini-tag {
+  flex: 0 0 auto;
+  margin-left: 0;
+}
+
 .fixed-widget-actions {
   display: flex;
   gap: 1px;
@@ -1655,6 +1713,14 @@ td.memo {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.fixed-widget-form .loan-interest-calculator {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fixed-widget-form .loan-interest-result {
+  justify-content: flex-start;
 }
 
 .fixed-widget-form-row {
@@ -2402,6 +2468,17 @@ td.memo {
     grid-column: 1 / -1;
   }
 
+  .loan-interest-calculator,
+  .fixed-widget-form .loan-interest-calculator {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .loan-interest-result {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
   .fixed-widget-grid {
     grid-template-columns: 1fr;
   }
@@ -2523,6 +2600,11 @@ td.memo {
     --entry-control-height: 40px;
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .loan-interest-calculator,
+  .fixed-widget-form .loan-interest-calculator {
+    grid-template-columns: 1fr;
   }
 
   .invest-form .field-wide {
@@ -2778,6 +2860,46 @@ td.memo {
   border-color: var(--accent);
   outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
   outline-offset: 1px;
+}
+
+/* ---------- fixed expense — touch long-press drag ---------- */
+/* Suppress the mobile text-selection / callout a long-press would otherwise
+   trigger, so the press can be used to pick a widget up instead. */
+.fixed-expense-widget {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* The pill that follows the finger while a touch drag is in progress. */
+.fixed-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 120;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 12px;
+  border-radius: 9px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.3);
+  transform: translate(-9999px, -9999px);
+}
+
+.fixed-drag-ghost-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.fixed-drag-ghost-amount {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
 }
 
 /* ---------- fixed expense — bundle (merged) widget ---------- */

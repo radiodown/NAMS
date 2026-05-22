@@ -1,11 +1,26 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { STAGE_META } from '../lib/categories'
 import { formatKRW } from '../lib/format'
 import { createId } from '../lib/id'
+import { isLoanInterestCategory } from '../lib/loanInterest'
+import LoanInterestCalculator from './LoanInterestCalculator'
 import Picker from './Picker'
 import PlusIcon from './PlusIcon'
 
-const blankForm = () => ({ name: '', category: '', paymentMethodId: '', amount: '', day: '', color: '' })
+const blankForm = () => ({
+  name: '',
+  category: '',
+  paymentMethodId: '',
+  amount: '',
+  day: '',
+  color: '',
+  loanMethod: '만기일시상환',
+  loanPrincipal: '',
+  loanRate: '',
+  loanMonths: '1',
+  loanRound: '1',
+  loanGraceMonths: '',
+})
 
 // Per-category accent palette so each small widget reads as distinct.
 const WIDGET_COLORS = [
@@ -21,6 +36,21 @@ function colorForCategory(category, categories) {
     hash = (hash + category.charCodeAt(i) * (i + 1)) % WIDGET_COLORS.length
   }
   return WIDGET_COLORS[hash]
+}
+
+// Parse a #rgb or #rrggbb string to [r, g, b]; null if it isn't valid hex.
+function hexToRgb(hex) {
+  const s = String(hex || '').trim().replace(/^#/, '')
+  const full = s.length === 3 ? s.replace(/./g, (c) => c + c) : s
+  if (full.length !== 6) return null
+  const n = Number.parseInt(full, 16)
+  return Number.isNaN(n) ? null : [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+// Clamp each channel and join back into a #rrggbb string.
+function rgbToHex([r, g, b]) {
+  const h = (n) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, '0')
+  return `#${h(r)}${h(g)}${h(b)}`
 }
 
 function itemName(it) {
@@ -44,6 +74,26 @@ function itemColor(it, category, categories) {
   return String(it?.color || '').trim() || colorForCategory(category, categories)
 }
 
+// Amount-weighted blend of a set of widgets' colors. Bigger expenses pull the
+// result toward their hue, matching the amount-proportional widths of the bar.
+function blendCategoryColor(members, category, categories) {
+  let r = 0
+  let g = 0
+  let b = 0
+  let total = 0
+  members.forEach((it) => {
+    const rgb = hexToRgb(itemColor(it, category, categories))
+    if (!rgb) return
+    const weight = Math.max(Number(it?.amount) || 0, 0) || 1
+    r += rgb[0] * weight
+    g += rgb[1] * weight
+    b += rgb[2] * weight
+    total += weight
+  })
+  if (total === 0) return colorForCategory(category, categories)
+  return rgbToHex([r / total, g / total, b / total])
+}
+
 // Days until the next occurrence of a monthly payment day. null if no day set.
 function daysUntilPayment(day) {
   if (!day) return null
@@ -58,6 +108,35 @@ function daysUntilPayment(day) {
     target = new Date(y, m + 1, Math.min(day, lastNext))
   }
   return Math.round((target - now) / 86400000)
+}
+
+// Long-press duration before a touch turns into a widget drag, and how far the
+// finger may stray during that wait before it counts as a scroll instead.
+const LONG_PRESS_MS = 300
+const TOUCH_MOVE_CANCEL = 12
+
+// Whether `unit` is a valid merge target for the `source` widget — same
+// category, never the widget itself. Shared by the mouse and touch drag paths.
+function unitAcceptsSource(unit, source) {
+  if (!unit || !source) return false
+  const cat = source.category || '기타'
+  if (unit.type === 'single') {
+    return unit.it.id !== source.id && (unit.it.category || '기타') === cat
+  }
+  return unit.category === cat
+}
+
+// Merge the `source` widget into a drop target by giving them a shared groupId.
+function applyMerge(source, unit, updateItem) {
+  if (unit.type === 'single') {
+    // merge two singles — reuse the target's groupId if it already had one
+    const groupId = unit.it.groupId || createId()
+    updateItem(source.id, { groupId })
+    updateItem(unit.it.id, { groupId })
+  } else {
+    // drop onto an existing bundle
+    updateItem(source.id, { groupId: unit.groupId })
+  }
 }
 
 export default function FixedExpenses({
@@ -75,6 +154,21 @@ export default function FixedExpenses({
   const [formOpen, setFormOpen] = useState(false)
   const [draggingId, setDraggingId] = useState(null)
   const [dropKey, setDropKey] = useState(null)
+  const [touchDragging, setTouchDragging] = useState(false)
+  // Touch long-press drag bookkeeping. Kept in refs so the document-level
+  // listeners can read live values without re-subscribing on every render.
+  const touchRef = useRef({
+    itemId: null,
+    startX: 0,
+    startY: 0,
+    x: 0,
+    y: 0,
+    timer: 0,
+    active: false,
+    dropKey: null,
+  })
+  const ghostRef = useRef(null)
+  const dragDataRef = useRef({ renderUnits: [], items: [], updateItem: () => {} })
 
   const categoryOptions = useMemo(() => {
     const current = form.category.trim()
@@ -102,18 +196,19 @@ export default function FixedExpenses({
       const category = itemCategory(it)
       if (!map.has(category)) {
         order.push(category)
-        map.set(category, {
-          category,
-          color: colorForCategory(category, categories),
-          items: [],
-          subtotal: 0,
-        })
+        map.set(category, { category, color: '', items: [], subtotal: 0 })
       }
       const group = map.get(category)
       group.items.push(it)
       group.subtotal += Number(it.amount) || 0
     })
-    return order.map((category) => map.get(category))
+    // Color each category by the amount-weighted blend of its own widgets, so
+    // the "한눈에 보기" bar reflects the real widget colors in the grid below.
+    return order.map((category) => {
+      const group = map.get(category)
+      group.color = blendCategoryColor(group.items, category, categories)
+      return group
+    })
   }, [items, categories])
 
   // Widgets that share a groupId render as one merged "bundle" card. A bundle
@@ -156,8 +251,14 @@ export default function FixedExpenses({
         }
       })
     })
+    // A bundle's accent blends its own members the same way a category does.
+    units.forEach((u) => {
+      if (u.type === 'bundle') {
+        u.color = blendCategoryColor(u.items, u.category, categories)
+      }
+    })
     return units
-  }, [groups, bundleCounts])
+  }, [groups, bundleCounts, categories])
 
   // Bar widths are relative to the largest unit (single amount or bundle total).
   const maxUnitAmount = useMemo(
@@ -172,6 +273,7 @@ export default function FixedExpenses({
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
   const selectedColor =
     form.color || colorForCategory(form.category.trim() || '기타', categories)
+  const loanInterestMode = isLoanInterestCategory(form.category)
 
   function submitForm(e) {
     e.preventDefault()
@@ -194,6 +296,14 @@ export default function FixedExpenses({
         paymentMethods.find((method) => method.id === form.paymentMethodId)?.name || '미지정',
       amount,
       day,
+    }
+    if (loanInterestMode) {
+      payload.loanMethod = form.loanMethod
+      payload.loanPrincipal = form.loanPrincipal
+      payload.loanRate = form.loanRate
+      payload.loanMonths = form.loanMonths
+      payload.loanRound = form.loanRound
+      payload.loanGraceMonths = form.loanGraceMonths
     }
     addCategory?.('지출', payload.category)
     if (editingId) {
@@ -226,6 +336,12 @@ export default function FixedExpenses({
       amount: String(it.amount || ''),
       day: day === '' ? '' : String(day),
       color: itemColor(it, itemCategory(it), categories),
+      loanMethod: it.loanMethod || '만기일시상환',
+      loanPrincipal: it.loanPrincipal != null ? String(it.loanPrincipal) : '',
+      loanRate: it.loanRate != null ? String(it.loanRate) : '',
+      loanMonths: it.loanMonths != null ? String(it.loanMonths) : '1',
+      loanRound: it.loanRound != null ? String(it.loanRound) : '1',
+      loanGraceMonths: it.loanGraceMonths != null ? String(it.loanGraceMonths) : '',
     })
     setCollapsed(false)
     setFormOpen(true)
@@ -252,12 +368,7 @@ export default function FixedExpenses({
 
   // A widget may only be dropped onto a same-category target, never itself.
   function canDrop(unit) {
-    if (!draggingItem) return false
-    const cat = draggingItem.category || '기타'
-    if (unit.type === 'single') {
-      return unit.it.id !== draggingItem.id && (unit.it.category || '기타') === cat
-    }
-    return unit.category === cat
+    return unitAcceptsSource(unit, draggingItem)
   }
 
   function handleDragStart(e, it) {
@@ -294,15 +405,7 @@ export default function FixedExpenses({
     setDraggingId(null)
     setDropKey(null)
     if (!ok || !source) return
-    if (unit.type === 'single') {
-      // merge two singles — reuse the target's groupId if it already had one
-      const groupId = unit.it.groupId || createId()
-      updateItem(source.id, { groupId })
-      updateItem(unit.it.id, { groupId })
-    } else {
-      // drop onto an existing bundle
-      updateItem(source.id, { groupId: unit.groupId })
-    }
+    applyMerge(source, unit, updateItem)
   }
 
   function ungroupBundle(groupId) {
@@ -310,6 +413,111 @@ export default function FixedExpenses({
       .filter((it) => it.groupId === groupId)
       .forEach((it) => updateItem(it.id, { groupId: '' }))
   }
+
+  // ---- touch drag: long-press a widget, drag it onto a same-category widget ----
+  function positionGhost(x, y) {
+    const el = ghostRef.current
+    if (el) el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -130%)`
+  }
+
+  function handleTouchStart(e, it) {
+    if (e.touches.length !== 1) return
+    if (e.target.closest?.('button')) return // keep the edit/delete buttons tappable
+    const t = e.touches[0]
+    const s = touchRef.current
+    clearTimeout(s.timer)
+    s.itemId = it.id
+    s.startX = t.clientX
+    s.startY = t.clientY
+    s.x = t.clientX
+    s.y = t.clientY
+    s.active = false
+    s.dropKey = null
+    s.timer = setTimeout(() => {
+      s.active = true
+      setDraggingId(it.id)
+      setTouchDragging(true)
+      navigator.vibrate?.(12)
+    }, LONG_PRESS_MS)
+  }
+
+  // Mirror the data the document listeners need so they can subscribe just once.
+  useEffect(() => {
+    dragDataRef.current = { renderUnits, items, updateItem }
+  })
+
+  // Drop the ghost at the finger the instant a long-press promotes to a drag.
+  useEffect(() => {
+    if (touchDragging) positionGhost(touchRef.current.x, touchRef.current.y)
+  }, [touchDragging])
+
+  useEffect(() => {
+    function endSession() {
+      const s = touchRef.current
+      clearTimeout(s.timer)
+      s.itemId = null
+      s.active = false
+      s.dropKey = null
+      setDraggingId(null)
+      setDropKey(null)
+      setTouchDragging(false)
+    }
+
+    function onTouchMove(e) {
+      const s = touchRef.current
+      if (s.itemId == null) return
+      const t = e.touches[0]
+      if (!t) return
+      s.x = t.clientX
+      s.y = t.clientY
+      if (!s.active) {
+        // Within the long-press wait a real move means the user is scrolling —
+        // cancel the pending pickup and let the page scroll normally.
+        const moved = Math.abs(t.clientX - s.startX) + Math.abs(t.clientY - s.startY)
+        if (moved > TOUCH_MOVE_CANCEL) {
+          clearTimeout(s.timer)
+          s.itemId = null
+        }
+        return
+      }
+      e.preventDefault() // dragging now — suppress page scroll
+      positionGhost(t.clientX, t.clientY)
+      const { renderUnits: units, items: list } = dragDataRef.current
+      const source = list.find((it) => it.id === s.itemId)
+      const el = document.elementFromPoint(t.clientX, t.clientY)
+      const unitEl = el && el.closest('[data-unit-key]')
+      const key = unitEl ? unitEl.getAttribute('data-unit-key') : null
+      const unit = key ? units.find((u) => u.key === key) : null
+      const validKey = unitAcceptsSource(unit, source) ? key : null
+      if (s.dropKey !== validKey) {
+        s.dropKey = validKey
+        setDropKey(validKey)
+      }
+    }
+
+    function onTouchEnd(e) {
+      const s = touchRef.current
+      if (s.itemId == null) return
+      if (s.active) {
+        if (e.cancelable) e.preventDefault() // swallow the trailing click
+        const { renderUnits: units, items: list, updateItem: update } = dragDataRef.current
+        const source = list.find((it) => it.id === s.itemId)
+        const unit = s.dropKey ? units.find((u) => u.key === s.dropKey) : null
+        if (unitAcceptsSource(unit, source)) applyMerge(source, unit, update)
+      }
+      endSession()
+    }
+
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('touchend', onTouchEnd)
+    document.addEventListener('touchcancel', onTouchEnd)
+    return () => {
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('touchend', onTouchEnd)
+      document.removeEventListener('touchcancel', onTouchEnd)
+      clearTimeout(touchRef.current.timer)
+    }
+  }, [])
 
   return (
     <div className="fixed-section" style={{ '--accent': STAGE_META.지출.color }}>
@@ -389,6 +597,7 @@ export default function FixedExpenses({
                         draggingId === it.id ? ' dragging' : ''
                       }${dropKey === unit.key ? ' drop-target' : ''}`}
                       key={unit.key}
+                      data-unit-key={unit.key}
                       style={{ '--accent': widgetColor }}
                       draggable
                       onDragStart={(e) => handleDragStart(e, it)}
@@ -396,11 +605,15 @@ export default function FixedExpenses({
                       onDragOver={(e) => handleDragOver(e, unit)}
                       onDragLeave={(e) => handleDragLeave(e, unit)}
                       onDrop={(e) => handleDrop(e, unit)}
+                      onTouchStart={(e) => handleTouchStart(e, it)}
                     >
                       <div className="fixed-widget-head">
                         <span className="fixed-widget-cat">
                           <span className="fixed-widget-dot" />
                           <span className="fixed-widget-cat-label">{unit.category}</span>
+                          {isLoanInterestCategory(unit.category) && (
+                            <span className="mini-tag">이자계산기</span>
+                          )}
                         </span>
                         <div className="fixed-widget-actions">
                           <button
@@ -544,6 +757,18 @@ export default function FixedExpenses({
                       />
                     </div>
                   </div>
+                  {loanInterestMode && (
+                    <LoanInterestCalculator
+                      principal={form.loanPrincipal}
+                      rate={form.loanRate}
+                      months={form.loanMonths}
+                      method={form.loanMethod}
+                      round={form.loanRound}
+                      graceMonths={form.loanGraceMonths}
+                      onChange={set}
+                      onApply={(amount) => set('amount', String(amount))}
+                    />
+                  )}
                   <div className="fixed-modal-actions">
                     <button type="button" className="btn" onClick={cancelEdit}>
                       취소
@@ -557,6 +782,22 @@ export default function FixedExpenses({
             </div>
           )}
         </>
+      )}
+
+      {touchDragging && draggingItem && (
+        <div
+          className="fixed-drag-ghost"
+          ref={ghostRef}
+          aria-hidden="true"
+          style={{
+            '--accent': itemColor(draggingItem, itemCategory(draggingItem), categories),
+          }}
+        >
+          <span className="fixed-drag-ghost-name">{itemName(draggingItem)}</span>
+          <span className="fixed-drag-ghost-amount">
+            {formatKRW(Number(draggingItem.amount) || 0)}
+          </span>
+        </div>
       )}
     </div>
   )
@@ -583,6 +824,7 @@ function BundleWidget({
   return (
     <div
       className={`fixed-expense-widget is-bundle${isDropTarget ? ' drop-target' : ''}`}
+      data-unit-key={unit.key}
       style={{ '--accent': color }}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}

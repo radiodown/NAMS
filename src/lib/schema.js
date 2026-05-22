@@ -3,6 +3,7 @@
 // stays consistent and is straightforward to export later.
 import { STAGE_META } from './categories'
 import { createId } from './id'
+import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
 
 export const SCHEMA_VERSION = 1
 
@@ -23,16 +24,30 @@ export function uniqueList(list) {
   return [...new Set(arr(list).map((v) => str(v)).filter(Boolean))]
 }
 
+function normalizeLoanCalculator(source, category) {
+  if (!isLoanInterestCategory(category)) return {}
+  return {
+    loanMethod: normalizeLoanMethod(str(source?.loanMethod)),
+    loanPrincipal: num(source?.loanPrincipal),
+    loanRate: num(source?.loanRate),
+    loanMonths: optNum(source?.loanMonths) || 1,
+    loanRound: optNum(source?.loanRound) || 1,
+    loanGraceMonths: optNum(source?.loanGraceMonths),
+  }
+}
+
 // --- transactions -----------------------------------------------------------
 export function normalizeEntry(entry) {
+  const category = str(entry?.category) || '미분류'
   return {
     id: str(entry?.id) || createId(),
     date: str(entry?.date),
-    category: str(entry?.category) || '미분류',
+    category,
     amount: num(entry?.amount),
     memo: str(entry?.memo),
     paymentMethodId: str(entry?.paymentMethodId),
     paymentMethod: str(entry?.paymentMethod),
+    ...normalizeLoanCalculator(entry, category),
   }
 }
 
@@ -72,32 +87,36 @@ export function normalizeInvestment(product) {
 
 // --- fixed expense template -------------------------------------------------
 export function normalizeTemplate(template) {
+  const category = str(template?.category) || '기타'
   return {
     id: str(template?.id) || createId(),
     name: str(template?.name) || '(이름 없음)',
-    category: str(template?.category) || '기타',
+    category,
     color: str(template?.color),
     amount: num(template?.amount),
     day: optNum(template?.day),
     paymentMethodId: str(template?.paymentMethodId),
     paymentMethod: str(template?.paymentMethod) || '미지정',
     groupId: str(template?.groupId),
+    ...normalizeLoanCalculator(template, category),
   }
 }
 
 // --- fixed expense monthly record ------------------------------------------
 export function normalizeRecord(record) {
+  const category = str(record?.category) || '기타'
   return {
     id: str(record?.id) || createId(),
     month: str(record?.month || record?.date).slice(0, 7),
     sourceId: str(record?.sourceId || record?.fixedId),
     name: str(record?.name || record?.memo) || '고정지출',
-    category: str(record?.category) || '기타',
+    category,
     amount: num(record?.amount),
     day: optNum(record?.day),
     color: str(record?.color),
     paymentMethodId: str(record?.paymentMethodId),
     paymentMethod: str(record?.paymentMethod) || '미지정',
+    ...normalizeLoanCalculator(record, category),
   }
 }
 

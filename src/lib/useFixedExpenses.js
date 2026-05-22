@@ -19,6 +19,12 @@ function recordsForMonth(items, month, paymentMethods) {
       color: entry.color,
       paymentMethodId: entry.paymentMethodId,
       paymentMethod: entry.paymentMethod,
+      loanMethod: entry.loanMethod,
+      loanPrincipal: entry.loanPrincipal,
+      loanRate: entry.loanRate,
+      loanMonths: entry.loanMonths,
+      loanRound: entry.loanRound,
+      loanGraceMonths: entry.loanGraceMonths,
     })
   )
 }

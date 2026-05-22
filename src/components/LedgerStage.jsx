@@ -1,12 +1,26 @@
 import { useEffect, useMemo, useState } from 'react'
 import { STAGE_META } from '../lib/categories'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
+import { isLoanInterestCategory } from '../lib/loanInterest'
 import CalendarInput from './CalendarInput'
 import FixedExpenses from './FixedExpenses'
+import LoanInterestCalculator from './LoanInterestCalculator'
 import PaymentMethodManager from './PaymentMethodManager'
 import Picker from './Picker'
 
-const blankForm = () => ({ date: todayStr(), category: '', paymentMethodId: '', amount: '', memo: '' })
+const blankForm = () => ({
+  date: todayStr(),
+  category: '',
+  paymentMethodId: '',
+  amount: '',
+  memo: '',
+  loanMethod: '만기일시상환',
+  loanPrincipal: '',
+  loanRate: '',
+  loanMonths: '1',
+  loanRound: '1',
+  loanGraceMonths: '',
+})
 const blankCategoryForm = () => ({ original: '', value: '' })
 
 function previousMonthOf(month) {
@@ -66,6 +80,7 @@ export default function LedgerStage({
     ],
     [paymentMethods]
   )
+  const loanInterestMode = type === '지출' && isLoanInterestCategory(form.category)
 
   const ledgerRows = useMemo(
     () =>
@@ -178,6 +193,14 @@ export default function LedgerStage({
     if (type === '지출') {
       payload.paymentMethodId = form.paymentMethodId
       payload.paymentMethod = paymentName(form.paymentMethodId)
+      if (loanInterestMode) {
+        payload.loanMethod = form.loanMethod
+        payload.loanPrincipal = form.loanPrincipal
+        payload.loanRate = form.loanRate
+        payload.loanMonths = form.loanMonths
+        payload.loanRound = form.loanRound
+        payload.loanGraceMonths = form.loanGraceMonths
+      }
     }
     addCategory?.(type, payload.category)
     if (editingId) {
@@ -200,6 +223,12 @@ export default function LedgerStage({
         '',
       amount: String(row.amount),
       memo: row.memo || '',
+      loanMethod: row.loanMethod || '만기일시상환',
+      loanPrincipal: row.loanPrincipal != null ? String(row.loanPrincipal) : '',
+      loanRate: row.loanRate != null ? String(row.loanRate) : '',
+      loanMonths: row.loanMonths != null ? String(row.loanMonths) : '1',
+      loanRound: row.loanRound != null ? String(row.loanRound) : '1',
+      loanGraceMonths: row.loanGraceMonths != null ? String(row.loanGraceMonths) : '',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -344,6 +373,18 @@ export default function LedgerStage({
               onChange={(e) => set('amount', e.target.value)}
             />
           </div>
+          {loanInterestMode && (
+            <LoanInterestCalculator
+              principal={form.loanPrincipal}
+              rate={form.loanRate}
+              months={form.loanMonths}
+              method={form.loanMethod}
+              round={form.loanRound}
+              graceMonths={form.loanGraceMonths}
+              onChange={set}
+              onApply={(amount) => set('amount', String(amount))}
+            />
+          )}
           <div className="field field-memo">
             <label>메모</label>
             <input
@@ -412,6 +453,7 @@ export default function LedgerStage({
               {categoryList.map((c) => (
                 <span className="category-chip" key={c}>
                   {c}
+                  {isLoanInterestCategory(c) && <span className="mini-tag">이자계산기</span>}
                   <button className="icon-btn" onClick={() => editCategory(c)} aria-label={`${c} 수정`}>
                     ✎
                   </button>
@@ -482,6 +524,7 @@ export default function LedgerStage({
                     <td data-label="날짜">{row.date || '—'}</td>
                     <td data-label="카테고리">
                       <span className="tag">{row.category}</span>
+                      {isLoanInterestCategory(row.category) && <span className="mini-tag">이자계산기</span>}
                       {row.fixedId && <span className="mini-tag">고정</span>}
                     </td>
                     {type === '지출' && (

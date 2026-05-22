@@ -29,6 +29,12 @@ export function fixedExpenseEntriesForMonth(items = [], month, paymentMethods = 
         memo: item.name || '고정지출',
         fixedId: item.id || '',
         virtualFixed: true,
+        loanMethod: item.loanMethod,
+        loanPrincipal: item.loanPrincipal,
+        loanRate: item.loanRate,
+        loanMonths: item.loanMonths,
+        loanRound: item.loanRound,
+        loanGraceMonths: item.loanGraceMonths,
       }
     })
 }
@@ -49,6 +55,12 @@ export function fixedExpenseEntriesFromRecords(records = [], paymentMethods = []
       memo: record.name || '고정지출',
       fixedId: record.sourceId || '',
       fixedRecord: true,
+      loanMethod: record.loanMethod,
+      loanPrincipal: record.loanPrincipal,
+      loanRate: record.loanRate,
+      loanMonths: record.loanMonths,
+      loanRound: record.loanRound,
+      loanGraceMonths: record.loanGraceMonths,
     }
   })
 }
