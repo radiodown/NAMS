@@ -280,7 +280,7 @@ export default function App() {
       <header className="app-header">
         <div className="app-title">
           <h1>NAMS</h1>
-          <span>{visibleTabs.join(' · ')}</span>
+          <span>Next Asset Management System</span>
         </div>
         <div className="header-actions">
           <button

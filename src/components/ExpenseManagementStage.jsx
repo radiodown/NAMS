@@ -57,7 +57,7 @@ export default function ExpenseManagementStage({
       return months.flatMap((targetMonth) => {
         const records = fixedRecords.filter((record) => record.month === targetMonth)
         if (records.length > 0) return fixedExpenseEntriesFromRecords(records, methods)
-        if (periodMode === 'month' && targetMonth === currentMonth) {
+        if (targetMonth === currentMonth) {
           return fixedExpenseEntriesForMonth(fixedItems, targetMonth, methods)
         }
         return []
