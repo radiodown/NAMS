@@ -37,10 +37,18 @@ async function fetchYahooQuote(symbol, emptyMessage) {
   const price = Number(meta?.regularMarketPrice ?? meta?.previousClose)
   if (!Number.isFinite(price) || price <= 0) throw new Error('현재가를 찾을 수 없습니다.')
 
+  const prevRaw = Number(meta?.chartPreviousClose ?? meta?.previousClose)
+  const previousClose = Number.isFinite(prevRaw) && prevRaw > 0 ? prevRaw : 0
+  const change = previousClose > 0 ? price - previousClose : 0
+  const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0
+
   const seconds = Number(meta?.regularMarketTime)
   return {
     symbol: meta?.symbol || symbol,
     price,
+    previousClose,
+    change,
+    changePercent,
     currency: meta?.currency || '',
     time: seconds ? new Date(seconds * 1000).toISOString() : new Date().toISOString(),
   }

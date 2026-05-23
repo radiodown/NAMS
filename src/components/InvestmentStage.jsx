@@ -20,6 +20,17 @@ const INVEST_COLORS = [
 
 const defaultColor = (kind) => INVEST_META[kind]?.color || INVEST_COLORS[0]
 
+// Representative FX pairs shown in the rotating top widget.
+const REP_FX_PAIRS = [
+  { base: 'USD', target: 'KRW', label: '미국 달러' },
+  { base: 'JPY', target: 'KRW', label: '일본 엔' },
+  { base: 'EUR', target: 'KRW', label: '유로' },
+  { base: 'CNY', target: 'KRW', label: '중국 위안' },
+  { base: 'GBP', target: 'KRW', label: '영국 파운드' },
+]
+const REP_FX_INTERVAL_MS = 2800
+const REP_FX_REFRESH_MS = 60000
+
 // Long-press duration before a touch becomes a widget drag, and how far the
 // finger may stray during that wait before it counts as a scroll instead.
 const LONG_PRESS_MS = 300
@@ -44,9 +55,6 @@ const blankForm = (kind = '예금') => ({
   color: defaultColor(kind),
   quoteSymbol: '',
   currentPrice: '',
-  baseCurrency: 'USD',
-  targetCurrency: 'KRW',
-  exchangeRate: '',
 })
 
 function formFromProduct(p) {
@@ -67,9 +75,6 @@ function formFromProduct(p) {
     color: p.color || defaultColor(p.kind),
     quoteSymbol: p.quoteSymbol || '',
     currentPrice: p.currentPrice != null ? String(p.currentPrice) : '',
-    baseCurrency: p.baseCurrency || p.currency || 'USD',
-    targetCurrency: p.targetCurrency || 'KRW',
-    exchangeRate: p.currentRate != null ? String(p.currentRate) : '',
   }
 }
 
@@ -96,15 +101,22 @@ function additionalBuyPreview(form) {
 }
 
 export default function InvestmentStage({ investments }) {
-  const { items, addItem, updateItem, removeItem, moveItem } = investments
+  const { items: rawItems, addItem, updateItem, removeItem, moveItem } = investments
+  // Legacy 환율 items from older data are persisted but hidden from the grid —
+  // representative FX rates now live in the top widget. The full list still
+  // feeds summarize/exchangeRateMap so any saved rate keeps converting stocks.
+  const items = useMemo(() => rawItems.filter((p) => p.kind !== '환율'), [rawItems])
   const today = todayStr()
   const [form, setForm] = useState(() => blankForm('예금'))
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
   const [quoteStatus, setQuoteStatus] = useState({})
 
-  const totals = useMemo(() => summarize(items, today), [items, today])
-  const rates = useMemo(() => exchangeRateMap(items), [items])
+  // rawItems feeds summarize/exchangeRateMap so legacy 환율 widgets keep
+  // providing FX rates for stock conversion. 환율 items contribute 0 to totals
+  // so including them does not skew the numbers.
+  const totals = useMemo(() => summarize(rawItems, today), [rawItems, today])
+  const rates = useMemo(() => exchangeRateMap(rawItems), [rawItems])
 
   const [draggingId, setDraggingId] = useState(null)
   const [dropId, setDropId] = useState(null)
@@ -127,26 +139,17 @@ export default function InvestmentStage({ investments }) {
   const quoteKey = useMemo(
     () =>
       items
-        .filter(
+        .filter((p) => p.kind === '주식' && (p.quoteSymbol || p.symbol))
+        .map(
           (p) =>
-            (p.kind === '주식' && (p.quoteSymbol || p.symbol)) ||
-            (p.kind === '환율' && p.baseCurrency && p.targetCurrency)
-        )
-        .map((p) =>
-          p.kind === '환율'
-            ? `${p.id}:FX:${p.baseCurrency}:${p.targetCurrency}`
-            : `${p.id}:STOCK:${p.quoteSymbol || p.symbol}:${p.currency || p.quoteCurrency || ''}`
+            `${p.id}:STOCK:${p.quoteSymbol || p.symbol}:${p.currency || p.quoteCurrency || ''}`
         )
         .join('|'),
     [items]
   )
 
   useEffect(() => {
-    const quoteItems = items.filter(
-      (p) =>
-        (p.kind === '주식' && (p.quoteSymbol || p.symbol)) ||
-        (p.kind === '환율' && p.baseCurrency && p.targetCurrency)
-    )
+    const quoteItems = items.filter((p) => p.kind === '주식' && (p.quoteSymbol || p.symbol))
     if (quoteItems.length === 0) return
 
     let cancelled = false
@@ -162,11 +165,6 @@ export default function InvestmentStage({ investments }) {
       const results = await Promise.all(
         quoteItems.map(async (p) => {
           try {
-            if (p.kind === '환율') {
-              const quote = await fetchExchangeRate(p.baseCurrency, p.targetCurrency)
-              return { p, quote }
-            }
-
             const quote = await fetchStockQuote(p.quoteSymbol || p.symbol)
             const currency = normalizeCurrencyCode(quote.currency || p.currency || p.quoteCurrency, 'KRW')
             if (currency === 'KRW') return { p, quote, currency }
@@ -198,24 +196,16 @@ export default function InvestmentStage({ investments }) {
 
       results.forEach(({ p, quote, currency, exchangeQuote }) => {
         if (!quote) return
-        if (p.kind === '환율') {
-          updateItem(p.id, {
-            currentRate: quote.price,
-            quoteSymbol: quote.symbol,
-            quoteTime: quote.time,
-          })
-        } else {
-          updateItem(p.id, {
-            currentPrice: quote.price,
-            currency,
-            quoteSymbol: quote.symbol,
-            quoteCurrency: currency || quote.currency,
-            quoteTime: quote.time,
-            ...(exchangeQuote
-              ? { exchangeRate: exchangeQuote.price, exchangeRateTime: exchangeQuote.time }
-              : {}),
-          })
-        }
+        updateItem(p.id, {
+          currentPrice: quote.price,
+          currency,
+          quoteSymbol: quote.symbol,
+          quoteCurrency: currency || quote.currency,
+          quoteTime: quote.time,
+          ...(exchangeQuote
+            ? { exchangeRate: exchangeQuote.price, exchangeRateTime: exchangeQuote.time }
+            : {}),
+        })
       })
     }
 
@@ -236,7 +226,7 @@ export default function InvestmentStage({ investments }) {
   function submit(e) {
     e.preventDefault()
     const { kind } = form
-    if (kind !== '환율' && !form.name.trim()) {
+    if (!form.name.trim()) {
       alert(kind === '주식' ? '종목명을 입력하세요.' : '상품명을 입력하세요.')
       return
     }
@@ -278,7 +268,7 @@ export default function InvestmentStage({ investments }) {
         method: form.method,
         round: form.round === '' ? '' : parseNumberInput(form.round),
       }
-    } else if (kind === '주식') {
+    } else {
       const shares = parseNumberInput(form.shares)
       const buyPrice = parseNumberInput(form.buyPrice)
       const addShares = parseNumberInput(form.addShares)
@@ -307,23 +297,6 @@ export default function InvestmentStage({ investments }) {
         quoteSymbol,
         quoteCurrency: currency,
         currentPrice: form.currentPrice === '' ? nextBuyPrice : parseNumberInput(form.currentPrice),
-      }
-    } else {
-      const baseCurrency = normalizeCurrencyCode(form.baseCurrency)
-      const targetCurrency = normalizeCurrencyCode(form.targetCurrency, 'KRW')
-      const currentRate = parseNumberInput(form.exchangeRate)
-      if (!baseCurrency) return alert('기준 통화를 입력하세요.')
-      if (!targetCurrency) return alert('상대 통화를 입력하세요.')
-      if (baseCurrency === targetCurrency) return alert('서로 다른 통화를 입력하세요.')
-      product = {
-        kind,
-        name: form.name.trim() || `${baseCurrency}/${targetCurrency}`,
-        date: form.date,
-        memo: form.memo.trim(),
-        color: form.color || defaultColor(kind),
-        baseCurrency,
-        targetCurrency,
-        currentRate,
       }
     }
     if (editingId) {
@@ -497,9 +470,8 @@ export default function InvestmentStage({ investments }) {
     }
   }, [])
 
-  const nameLabel = form.kind === '주식' ? '종목명' : form.kind === '환율' ? '위젯명' : '상품명'
-  const dateLabel =
-    form.kind === '예금' ? '가입일' : form.kind === '적금' ? '시작일' : form.kind === '환율' ? '기준일' : '매수일'
+  const nameLabel = form.kind === '주식' ? '종목명' : '상품명'
+  const dateLabel = form.kind === '예금' ? '가입일' : form.kind === '적금' ? '시작일' : '매수일'
   const stockBuyPreview = form.kind === '주식' ? additionalBuyPreview(form) : null
 
   return (
@@ -526,10 +498,7 @@ export default function InvestmentStage({ investments }) {
             )}
           </div>
         </div>
-        <div className="stat-card">
-          <div className="label">보유 상품</div>
-          <div className="value">{items.length}개</div>
-        </div>
+        <RepresentativeFXCard />
       </div>
 
       {formOpen && (
@@ -569,13 +538,7 @@ export default function InvestmentStage({ investments }) {
             <label>{nameLabel}</label>
             <input
               type="text"
-              placeholder={
-                form.kind === '주식'
-                  ? '예: 삼성전자'
-                  : form.kind === '환율'
-                    ? '예: 달러 환율'
-                    : '예: OO은행 정기예금'
-              }
+              placeholder={form.kind === '주식' ? '예: 삼성전자' : '예: OO은행 정기예금'}
               value={form.name}
               onChange={(e) => set('name', e.target.value)}
             />
@@ -733,39 +696,6 @@ export default function InvestmentStage({ investments }) {
                   )}
                 </>
               )}
-            </>
-          )}
-
-          {form.kind === '환율' && (
-            <>
-              <div className="field">
-                <label>기준 통화</label>
-                <input
-                  type="text"
-                  placeholder="USD"
-                  value={form.baseCurrency}
-                  onChange={(e) => set('baseCurrency', normalizeCurrencyCode(e.target.value, ''))}
-                />
-              </div>
-              <div className="field">
-                <label>상대 통화</label>
-                <input
-                  type="text"
-                  placeholder="KRW"
-                  value={form.targetCurrency}
-                  onChange={(e) => set('targetCurrency', normalizeCurrencyCode(e.target.value, ''))}
-                />
-              </div>
-              <div className="field">
-                <label>환율 (선택)</label>
-                <NumberInput
-                  min="0"
-                  step="any"
-                  placeholder="자동 조회"
-                  value={form.exchangeRate}
-                  onChange={(value) => set('exchangeRate', value)}
-                />
-              </div>
             </>
           )}
 
@@ -989,6 +919,78 @@ function ProductCard({
         <div className="invest-widget-value">{valueText}</div>
         <div className={`invest-widget-profit ${profitClass(m.profit)}`}>{profitText}</div>
         <div className="invest-widget-detail">{kindDetail}</div>
+      </div>
+    </div>
+  )
+}
+
+// Rotating top-of-stage widget that cycles through representative FX rates
+// (USD/KRW, JPY/KRW, …) with their day-over-day change. Rates refresh on a
+// timer so the card stays live without user interaction.
+function RepresentativeFXCard() {
+  const [quotes, setQuotes] = useState([])
+  const [index, setIndex] = useState(0)
+  const [status, setStatus] = useState('loading')
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const results = await Promise.all(
+        REP_FX_PAIRS.map(async (pair) => {
+          try {
+            const quote = await fetchExchangeRate(pair.base, pair.target)
+            return { ...pair, ...quote }
+          } catch {
+            return null
+          }
+        })
+      )
+      if (cancelled) return
+      const ok = results.filter(Boolean)
+      setQuotes(ok)
+      setStatus(ok.length > 0 ? 'ok' : 'error')
+    }
+    load()
+    const timer = window.setInterval(load, REP_FX_REFRESH_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (quotes.length <= 1) return undefined
+    const timer = window.setInterval(() => {
+      setIndex((i) => (i + 1) % quotes.length)
+    }, REP_FX_INTERVAL_MS)
+    return () => window.clearInterval(timer)
+  }, [quotes.length])
+
+  const active = quotes.length ? quotes[index % quotes.length] : null
+  const change = active ? Number(active.changePercent) || 0 : 0
+  const tone = change > 0 ? 'up' : change < 0 ? 'down' : ''
+  const mark = change > 0 ? '▲' : change < 0 ? '▼' : '–'
+
+  return (
+    <div className="stat-card category-stat-card">
+      <div className="category-stat-roll" key={active ? `${active.base}${active.target}` : 'empty'}>
+        <div className="label">
+          {active ? `${active.label} (${active.base}/${active.target})` : '대표 환율'}
+        </div>
+        <div className="value">
+          {active ? (
+            <>
+              {formatRate(active.price)}
+              <span className={`month-change ${tone}`}>
+                ({mark} {Math.abs(change).toFixed(2)}%)
+              </span>
+            </>
+          ) : status === 'loading' ? (
+            '조회중'
+          ) : (
+            '조회 실패'
+          )}
+        </div>
       </div>
     </div>
   )

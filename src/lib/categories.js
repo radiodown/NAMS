@@ -26,6 +26,9 @@ export const STAGE_META = {
 }
 
 // Investment product kinds shown in the 투자 tab.
+// 환율 is kept in INVEST_META so legacy 환율 items from older data still render,
+// but it is intentionally excluded from INVEST_KINDS — representative FX rates
+// now live in the top stat grid, not as user-added widgets.
 export const INVEST_META = {
   예금: { kind: '예금', color: '#0891b2', desc: '목돈을 한 번에 예치하고 이자를 받습니다' },
   적금: { kind: '적금', color: '#4f46e5', desc: '매달 일정 금액을 적립합니다' },
@@ -33,7 +36,7 @@ export const INVEST_META = {
   환율: { kind: '환율', color: '#059669', desc: '원하는 통화 환율을 조회하고 해외 주식 평가에 사용합니다' },
 }
 
-export const INVEST_KINDS = ['예금', '적금', '주식', '환율']
+export const INVEST_KINDS = ['예금', '적금', '주식']
 
 export const INVEST_COLOR = '#0e7490'
 export const SUMMARY_COLOR = '#7c3aed'
