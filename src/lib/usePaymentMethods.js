@@ -1,10 +1,11 @@
 import { useCallback } from 'react'
 import { createId } from './id'
 import { normalizeMethod } from './schema'
-import { usePersistentState } from './store'
+import { useStoredSlice } from './store'
+import { STORE_PATHS } from './storePaths'
 
 export function usePaymentMethods() {
-  const [items, setItems] = usePersistentState('stages.expense.paymentMethods', [])
+  const [items, setItems] = useStoredSlice(STORE_PATHS.expense.paymentMethods, [])
 
   const addItem = useCallback(
     (method) => {

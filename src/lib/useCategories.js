@@ -1,14 +1,15 @@
 import { useCallback, useMemo } from 'react'
 import { defaultCategories, uniqueList } from './schema'
-import { usePersistentState } from './store'
+import { useStoredSlice } from './store'
+import { STORE_PATHS } from './storePaths'
 
 // Per-stage category lists. They power autocomplete only — users can still
 // type any custom category on an entry.
 export function useCategories() {
-  const [income, setIncome] = usePersistentState('stages.income.categories', () =>
+  const [income, setIncome] = useStoredSlice(STORE_PATHS.income.categories, () =>
     defaultCategories('수입')
   )
-  const [expense, setExpense] = usePersistentState('stages.expense.categories', () =>
+  const [expense, setExpense] = useStoredSlice(STORE_PATHS.expense.categories, () =>
     defaultCategories('지출')
   )
 

@@ -17,22 +17,77 @@ export function normalizeExchangeSymbol(base, target = 'KRW') {
   return `${baseCurrency}${targetCurrency}=X`
 }
 
-function yahooChartUrl(symbol) {
-  const path = `/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`
-  const local =
-    typeof window !== 'undefined' &&
-    (window.location.port === '5173' ||
-      ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname))
-  return local ? `/api/yahoo${path}` : `https://query1.finance.yahoo.com${path}`
+const QUOTE_TIMEOUT_MS = 12000
+const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
+
+function isLocalDev() {
+  if (typeof window === 'undefined') return false
+  return (
+    window.location.port === '5173' ||
+    ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+  )
 }
 
-async function fetchYahooQuote(symbol, emptyMessage) {
-  if (!symbol) throw new Error(emptyMessage)
+function yahooChartPath(symbol) {
+  return `/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`
+}
 
-  const res = await fetch(yahooChartUrl(symbol))
-  if (!res.ok) throw new Error(`시세 조회 실패 (${res.status})`)
+function yahooChartUrl(symbol) {
+  const path = yahooChartPath(symbol)
+  if (isLocalDev()) return `/api/yahoo${path}`
 
-  const data = await res.json()
+  // GitHub Pages has no server-side proxy, and Yahoo's chart endpoint is not
+  // browser-CORS friendly. Jina Reader gives static deployments a CORS-enabled
+  // read-only pass-through while keeping the same Yahoo payload shape.
+  return `https://r.jina.ai/http://query1.finance.yahoo.com${path.replace(/&/g, '%26')}`
+}
+
+function extractJson(text) {
+  const source = String(text || '').trim()
+  if (!source) throw new Error('빈 응답입니다.')
+
+  try {
+    return JSON.parse(source)
+  } catch {
+    const marker = 'Markdown Content:'
+    const body = source.includes(marker)
+      ? source.slice(source.indexOf(marker) + marker.length).trim()
+      : source
+    const start = body.indexOf('{')
+    const end = body.lastIndexOf('}')
+    if (start < 0 || end <= start) throw new Error('응답 형식이 올바르지 않습니다.')
+    return JSON.parse(body.slice(start, end + 1))
+  }
+}
+
+async function fetchText(url, options = {}) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), QUOTE_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal })
+    const text = await res.text()
+    if (!res.ok) throw new Error(`시세 조회 실패 (${res.status})`)
+    return text
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('시세 조회 시간이 초과되었습니다.')
+    throw error
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function fetchJson(url, options = {}) {
+  return extractJson(await fetchText(url, options))
+}
+
+function quoteFromYahooData(data, fallbackSymbol) {
+  if (data?.code || data?.status) {
+    throw new Error(data?.readableMessage || data?.message || '시세 조회 실패')
+  }
+
+  const error = data?.chart?.error
+  if (error) throw new Error(error.description || error.message || '시세 조회 실패')
+
   const meta = data?.chart?.result?.[0]?.meta
   const price = Number(meta?.regularMarketPrice ?? meta?.previousClose)
   if (!Number.isFinite(price) || price <= 0) throw new Error('현재가를 찾을 수 없습니다.')
@@ -44,7 +99,7 @@ async function fetchYahooQuote(symbol, emptyMessage) {
 
   const seconds = Number(meta?.regularMarketTime)
   return {
-    symbol: meta?.symbol || symbol,
+    symbol: meta?.symbol || fallbackSymbol,
     price,
     previousClose,
     change,
@@ -54,10 +109,53 @@ async function fetchYahooQuote(symbol, emptyMessage) {
   }
 }
 
+async function fetchYahooQuote(symbol, emptyMessage) {
+  if (!symbol) throw new Error(emptyMessage)
+
+  return quoteFromYahooData(await fetchJson(yahooChartUrl(symbol)), symbol)
+}
+
+async function fetchFrankfurterRate(base, target) {
+  const baseCurrency = normalizeCurrencyCode(base)
+  const targetCurrency = normalizeCurrencyCode(target, 'KRW')
+  if (!baseCurrency || !targetCurrency) throw new Error('통화 코드가 없습니다.')
+  if (baseCurrency === targetCurrency) {
+    return {
+      symbol: `${baseCurrency}${targetCurrency}`,
+      price: 1,
+      previousClose: 1,
+      change: 0,
+      changePercent: 0,
+      currency: targetCurrency,
+      time: new Date().toISOString(),
+    }
+  }
+
+  const url = `${FRANKFURTER_URL}?from=${encodeURIComponent(baseCurrency)}&to=${encodeURIComponent(targetCurrency)}`
+  const data = await fetchJson(url)
+  const price = Number(data?.rates?.[targetCurrency])
+  if (!Number.isFinite(price) || price <= 0) throw new Error('환율을 찾을 수 없습니다.')
+
+  return {
+    symbol: `${baseCurrency}${targetCurrency}`,
+    price,
+    previousClose: 0,
+    change: 0,
+    changePercent: 0,
+    currency: targetCurrency,
+    time: data?.date ? new Date(`${data.date}T00:00:00Z`).toISOString() : new Date().toISOString(),
+  }
+}
+
 export async function fetchStockQuote(input) {
   return fetchYahooQuote(normalizeStockSymbol(input), '종목 코드가 없습니다.')
 }
 
 export async function fetchExchangeRate(base, target = 'KRW') {
-  return fetchYahooQuote(normalizeExchangeSymbol(base, target), '통화 코드가 없습니다.')
+  const symbol = normalizeExchangeSymbol(base, target)
+  try {
+    return await fetchYahooQuote(symbol, '통화 코드가 없습니다.')
+  } catch (error) {
+    return fetchFrankfurterRate(base, target)
+  }
 }

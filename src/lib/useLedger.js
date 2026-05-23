@@ -1,13 +1,14 @@
 import { useCallback, useMemo } from 'react'
 import { createId } from './id'
 import { normalizeEntry } from './schema'
-import { usePersistentState } from './store'
+import { useStoredSlice } from './store'
+import { STORE_PATHS } from './storePaths'
 
 // Income and expense transactions live in separate per-stage slices. The
 // combined `entries` view re-attaches a `type` for the UI and CSV layer.
 export function useLedger() {
-  const [income, setIncome] = usePersistentState('stages.income.entries', [])
-  const [expense, setExpense] = usePersistentState('stages.expense.entries', [])
+  const [income, setIncome] = useStoredSlice(STORE_PATHS.income.entries, [])
+  const [expense, setExpense] = useStoredSlice(STORE_PATHS.expense.entries, [])
 
   const entries = useMemo(
     () => [

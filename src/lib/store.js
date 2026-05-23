@@ -1,31 +1,53 @@
-// Single source of truth for everything persisted to localStorage.
+// Browser document store.
 //
-// The whole app state lives in one versioned JSON document under `nams-store`.
-// Hooks read/write slices of it through `usePersistentState`, replacing the
-// per-hook load/save boilerplate.
-import { useEffect, useState } from 'react'
+// GitHub Pages serves this app as static files, so persistence stays local to
+// the browser. This module owns the live document and hides localStorage/JSON
+// details from domain hooks.
+import { useCallback, useSyncExternalStore } from 'react'
+import {
+  DOCUMENT_STORAGE_KEY,
+  clearAppStorage as clearBrowserAppStorage,
+  readStorageText,
+  writeStorageText,
+} from './browserStorage'
 import { buildDefaultDoc, normalizeDoc } from './schema'
 
-const STORE_KEY = 'nams-store'
+const listeners = new Set()
 
-function readRaw(key) {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
+function clone(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value))
+}
+
+function keysForPath(path) {
+  return String(path || '')
+    .split('.')
+    .map((key) => key.trim())
+    .filter(Boolean)
+}
+
+function readPath(source, path) {
+  return keysForPath(path).reduce((node, key) => (node == null ? undefined : node[key]), source)
+}
+
+function writePath(source, path, value) {
+  const keys = keysForPath(path)
+  if (keys.length === 0) return
+
+  let node = source
+  for (let index = 0; index < keys.length - 1; index += 1) {
+    const key = keys[index]
+    if (node[key] == null || typeof node[key] !== 'object') node[key] = {}
+    node = node[key]
   }
+  node[keys[keys.length - 1]] = value
 }
 
 function persist(next) {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(next))
-  } catch {
-    // storage full or unavailable — skip silently
-  }
+  writeStorageText(DOCUMENT_STORAGE_KEY, JSON.stringify(next))
 }
 
 function initDoc() {
-  const raw = readRaw(STORE_KEY)
+  const raw = readStorageText(DOCUMENT_STORAGE_KEY)
   if (raw) {
     try {
       return normalizeDoc(JSON.parse(raw))
@@ -41,44 +63,65 @@ function initDoc() {
 // In-memory document — the live source of truth for the session.
 let doc = initDoc()
 
-export function getSlice(path) {
-  return path.split('.').reduce((node, key) => (node == null ? undefined : node[key]), doc)
+function notify() {
+  listeners.forEach((listener) => listener())
 }
 
-export function setSlice(path, value) {
-  const keys = path.split('.')
-  let node = doc
-  for (let i = 0; i < keys.length - 1; i += 1) {
-    const key = keys[i]
-    if (node[key] == null || typeof node[key] !== 'object') node[key] = {}
-    node = node[key]
-  }
-  node[keys[keys.length - 1]] = value
+function commitDocument(next, options = {}) {
+  doc = options.normalize ? normalizeDoc(next) : next
   persist(doc)
+  notify()
+  return doc
+}
+
+function subscribe(listener) {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
+}
+
+export function updateSlice(path, updater) {
+  const next = clone(doc)
+  const current = readPath(next, path)
+  const value = typeof updater === 'function' ? updater(current) : updater
+  writePath(next, path, value)
+  commitDocument(next)
+  return clone(readPath(doc, path))
+}
+
+export function updateDocument(updater) {
+  const next = clone(doc)
+  const value = typeof updater === 'function' ? updater(next) : updater
+  commitDocument(value === undefined ? next : value)
+  return exportDocument()
 }
 
 // Whole-document access for JSON backup export / import.
 export function exportDocument() {
-  return doc
+  return clone(doc)
 }
 
 export function importDocument(raw) {
-  doc = normalizeDoc(raw)
-  persist(doc)
-  return doc
+  commitDocument(raw, { normalize: true })
+  return exportDocument()
 }
 
-// Drop-in replacement for the per-hook useState(load) + useEffect(save) pattern.
-export function usePersistentState(path, fallback) {
-  const [value, setValue] = useState(() => {
-    const stored = getSlice(path)
+export function clearStoredData() {
+  clearBrowserAppStorage()
+}
+
+export function useStoredSlice(path, fallback) {
+  const getSnapshot = useCallback(() => {
+    const stored = readPath(doc, path)
     if (stored !== undefined) return stored
     return typeof fallback === 'function' ? fallback() : fallback
-  })
+  }, [path, fallback])
 
-  useEffect(() => {
-    setSlice(path, value)
-  }, [path, value])
+  const value = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+  const setValue = useCallback((nextValue) => {
+    updateSlice(path, (current) =>
+      typeof nextValue === 'function' ? nextValue(current) : nextValue
+    )
+  }, [path])
 
   return [value, setValue]
 }

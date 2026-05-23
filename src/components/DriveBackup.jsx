@@ -8,10 +8,10 @@ import {
   loadBackup,
   getSavedConnection,
 } from '../lib/googleDrive'
-import { importDocument } from '../lib/store'
+import { importBackupDocument, isBackupDocument } from '../lib/backup'
 
 // Google Drive backup controls — connect a Google account, then save/load the
-// nams-store document to a single file in the user's Drive.
+// browser document to a single file in the user's Drive.
 function GoogleDriveIcon() {
   return (
     <svg className="drive-icon" viewBox="0 0 24 21" aria-hidden="true">
@@ -129,14 +129,14 @@ export default function DriveBackup() {
         setMessage('드라이브에 백업 파일이 없습니다.')
         return
       }
-      if (!doc.stages || typeof doc.stages !== 'object') {
+      if (!isBackupDocument(doc)) {
         setMessage('백업 파일 형식이 올바르지 않습니다.')
         return
       }
       if (!window.confirm('드라이브의 백업으로 현재 데이터를 모두 교체합니다.\n계속할까요?')) {
         return
       }
-      importDocument(doc)
+      importBackupDocument(doc)
       window.location.reload()
     } catch (e) {
       setMessage(`불러오기 실패: ${e?.message || e}`)

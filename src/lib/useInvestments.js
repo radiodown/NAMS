@@ -1,11 +1,12 @@
 import { useCallback } from 'react'
 import { createId } from './id'
 import { normalizeInvestment } from './schema'
-import { usePersistentState } from './store'
+import { useStoredSlice } from './store'
+import { STORE_PATHS } from './storePaths'
 
 // Investment products: 예금 / 적금 / 주식 / 환율. Each has a `kind` and kind-specific fields.
 export function useInvestments() {
-  const [items, setItems] = usePersistentState('stages.investment.products', [])
+  const [items, setItems] = useStoredSlice(STORE_PATHS.investment.products, [])
 
   const addItem = useCallback(
     (item) => {

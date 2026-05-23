@@ -12,8 +12,17 @@ import InvestmentStage from './components/InvestmentStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
 import SummaryStage from './components/SummaryStage'
 import SettingsModal from './components/SettingsModal'
-import { usePersistentState, exportDocument, importDocument } from './lib/store'
+import { clearStoredData as clearAppStoredData, useStoredSlice } from './lib/store'
 import { STAGE_TABS as TABS, normalizeStageConfig, defaultStageConfig } from './lib/schema'
+import {
+  BACKUP_MIME,
+  backupFileName,
+  countBackupItems,
+  createBackupText,
+  importBackupDocument,
+  parseBackupText,
+} from './lib/backup'
+import { STORE_PATHS } from './lib/storePaths'
 import {
   isConfigured as isDriveConfigured,
   getSavedConnection,
@@ -43,11 +52,14 @@ export default function App() {
   const paymentMethods = usePaymentMethods()
   const { entries } = ledger
   const [tab, setTab] = useState('수입')
-  const [stageConfig, setStageConfig] = usePersistentState('settings.stages', defaultStageConfig)
+  const [stageConfig, setStageConfig] = useStoredSlice(
+    STORE_PATHS.settings.stages,
+    defaultStageConfig
+  )
   const [stageOpen, setStageOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [dragStage, setDragStage] = useState('')
-  const [theme, setTheme] = usePersistentState('settings.theme', 'light')
+  const [theme, setTheme] = useStoredSlice(STORE_PATHS.settings.theme, 'light')
   const currentMonth = todayStr().slice(0, 7)
   const previousMonth = shiftMonth(currentMonth, -1)
   const transactionEntries = useMemo(
@@ -103,12 +115,11 @@ export default function App() {
   }, [currentMonth, fixed.lastActiveMonth, fixed.recordMonth, fixed.setLastActiveMonth, paymentMethods.items])
 
   function exportJSON() {
-    const json = JSON.stringify(exportDocument(), null, 2)
-    const blob = new Blob([json], { type: 'application/json' })
+    const blob = new Blob([createBackupText()], { type: BACKUP_MIME })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `가계부_${todayStr()}.json`
+    a.download = backupFileName()
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -120,21 +131,12 @@ export default function App() {
     reader.onload = () => {
       let parsed
       try {
-        parsed = JSON.parse(String(reader.result || ''))
-      } catch {
-        alert('JSON 파일을 읽지 못했습니다. 형식을 확인해 주세요.')
+        parsed = parseBackupText(reader.result)
+      } catch (error) {
+        alert(error?.message || '백업 파일을 읽지 못했습니다.')
         return
       }
-      if (!parsed || typeof parsed !== 'object' || !parsed.stages || typeof parsed.stages !== 'object') {
-        alert('가계부 백업 JSON이 아닙니다.')
-        return
-      }
-      const stages = parsed.stages
-      const count =
-        (stages.income?.entries?.length || 0) +
-        (stages.expense?.entries?.length || 0) +
-        (stages.expense?.fixed?.templates?.length || 0) +
-        (stages.investment?.products?.length || 0)
+      const count = countBackupItems(parsed)
       if (
         !window.confirm(
           `현재 데이터를 이 백업(거래·고정지출·투자 ${count}건)으로 모두 교체합니다.\n계속할까요?`
@@ -142,7 +144,7 @@ export default function App() {
       ) {
         return
       }
-      importDocument(parsed)
+      importBackupDocument(parsed)
       window.location.reload()
     }
     reader.onerror = () => alert('파일을 읽지 못했습니다.')
@@ -275,9 +277,7 @@ export default function App() {
 
   function clearStoredData() {
     if (!window.confirm('저장된 모든 데이터를 삭제할까요?')) return
-    Object.keys(localStorage)
-      .filter((key) => key.startsWith('nams-'))
-      .forEach((key) => localStorage.removeItem(key))
+    clearAppStoredData()
     window.location.reload()
   }
 

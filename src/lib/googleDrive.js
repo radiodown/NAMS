@@ -1,10 +1,11 @@
-// Google Drive backup — sign in with Google (GIS) and keep the nams-store
+// Google Drive backup — sign in with Google (GIS) and keep the browser
 // document as a single `nams-backup.json` file in the user's own Drive.
 //
 // Requires a web OAuth client ID in `VITE_GOOGLE_CLIENT_ID` (.env.local).
 // Without it the integration stays disabled and the rest of the app is
 // unaffected.
-import { exportDocument } from './store'
+import { createBackupText, parseBackupText } from './backup'
+import { readStorageText, removeStorageText, writeStorageText } from './browserStorage'
 
 const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 const SCOPE = 'https://www.googleapis.com/auth/drive.file'
@@ -49,26 +50,18 @@ let tokenExpiry = 0
 
 export function getSavedConnection() {
   try {
-    return JSON.parse(localStorage.getItem(CONNECTION_KEY) || 'null') || null
+    return JSON.parse(readStorageText(CONNECTION_KEY) || 'null') || null
   } catch {
     return null
   }
 }
 
 function rememberConnection(email = '') {
-  try {
-    localStorage.setItem(CONNECTION_KEY, JSON.stringify({ connected: true, email }))
-  } catch {
-    // The Drive token can still work even if the connection hint cannot be saved.
-  }
+  writeStorageText(CONNECTION_KEY, JSON.stringify({ connected: true, email }))
 }
 
 function forgetConnection() {
-  try {
-    localStorage.removeItem(CONNECTION_KEY)
-  } catch {
-    // Ignore storage cleanup failures.
-  }
+  removeStorageText(CONNECTION_KEY)
 }
 
 async function ensureTokenClient() {
@@ -173,7 +166,7 @@ export async function connect() {
 
 // Upload the current document, overwriting the existing backup file if any.
 export async function saveBackup() {
-  const content = JSON.stringify(exportDocument(), null, 2)
+  const content = createBackupText()
   const fileId = await findBackupId()
   if (fileId) {
     await driveFetch(
@@ -207,5 +200,5 @@ export async function loadBackup() {
   const fileId = await findBackupId()
   if (!fileId) return null
   const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`)
-  return JSON.parse(await res.text())
+  return parseBackupText(await res.text())
 }

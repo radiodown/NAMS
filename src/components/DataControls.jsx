@@ -1,6 +1,7 @@
 import { useRef } from 'react'
+import { BACKUP_ACCEPT } from '../lib/backup'
 
-// Backup controls: export the whole nams-store document as raw JSON, and
+// Backup controls: export the whole browser document as raw JSON, and
 // restore it by importing a JSON file.
 function LocalActionIcon({ type }) {
   if (type === 'save') {
@@ -41,7 +42,7 @@ export default function DataControls({
       <input
         ref={inputRef}
         type="file"
-        accept=".json,application/json"
+        accept={BACKUP_ACCEPT}
         onChange={handleFile}
         hidden
       />

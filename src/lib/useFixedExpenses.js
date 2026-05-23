@@ -2,7 +2,8 @@ import { useCallback } from 'react'
 import { createId } from './id'
 import { normalizeRecord, normalizeTemplate } from './schema'
 import { fixedExpenseEntriesForMonth } from './fixedExpenseEntries'
-import { usePersistentState } from './store'
+import { useStoredSlice } from './store'
+import { STORE_PATHS } from './storePaths'
 
 const MONTH_RE = /^\d{4}-\d{2}$/
 
@@ -32,14 +33,14 @@ function recordsForMonth(items, month, paymentMethods) {
 // Recurring expense templates (rent, subscriptions, ...) plus the finalized
 // monthly snapshots ("records") kept once a month rolls over.
 export function useFixedExpenses() {
-  const [items, setItems] = usePersistentState('stages.expense.fixed.templates', [])
-  const [records, setRecords] = usePersistentState('stages.expense.fixed.records', [])
-  const [closedMonths, setClosedMonths] = usePersistentState(
-    'stages.expense.fixed.closedMonths',
+  const [items, setItems] = useStoredSlice(STORE_PATHS.expense.fixedTemplates, [])
+  const [records, setRecords] = useStoredSlice(STORE_PATHS.expense.fixedRecords, [])
+  const [closedMonths, setClosedMonths] = useStoredSlice(
+    STORE_PATHS.expense.fixedClosedMonths,
     []
   )
-  const [lastActiveMonth, setLastActiveMonth] = usePersistentState(
-    'stages.expense.fixed.lastActiveMonth',
+  const [lastActiveMonth, setLastActiveMonth] = useStoredSlice(
+    STORE_PATHS.expense.fixedLastActiveMonth,
     ''
   )
 

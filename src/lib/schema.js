@@ -1,6 +1,6 @@
-// Canonical shapes + normalizers for the single versioned `nams-store` document.
-// Everything persisted to localStorage flows through here so the on-disk format
-// stays consistent and is straightforward to export later.
+// Canonical shapes + normalizers for the versioned browser document.
+// Imported backups and older local documents flow through here so the stored
+// shape stays consistent.
 import { STAGE_META } from './categories'
 import { createId } from './id'
 import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
