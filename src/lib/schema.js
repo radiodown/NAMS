@@ -8,7 +8,10 @@ import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
 export const SCHEMA_VERSION = 1
 
 // UI tab names in default order. The stage config persists name + visibility.
-export const STAGE_TABS = ['수입', '지출', '지출 관리', '투자', '그래프요약']
+export const STAGE_TABS = ['수입', '지출', '지출 관리', '투자', '그래프요약', '연말정산']
+
+// Tax-benefit tags an investment product can claim. Drives 연말정산 stage matching.
+export const TAX_BENEFIT_TAGS = ['없음', 'ISA', '연금저축', 'IRP', '주택청약', '청년도약계좌']
 
 // --- scalar coercion --------------------------------------------------------
 const str = (v) => String(v ?? '').trim()
@@ -59,6 +62,11 @@ function currencyCode(value, fallback = 'KRW') {
   return code || fallback
 }
 
+function normalizeTaxBenefit(value) {
+  const tag = str(value)
+  return TAX_BENEFIT_TAGS.includes(tag) ? tag : '없음'
+}
+
 export function normalizeInvestment(product) {
   const kind = INVEST_KINDS.includes(str(product?.kind)) ? str(product.kind) : '예금'
   const base = {
@@ -68,6 +76,7 @@ export function normalizeInvestment(product) {
     date: str(product?.date),
     memo: str(product?.memo),
     color: str(product?.color),
+    taxBenefit: normalizeTaxBenefit(product?.taxBenefit),
   }
   if (kind === '주식') {
     return {
@@ -176,6 +185,40 @@ export function defaultStageConfig() {
   return STAGE_TABS.map((name) => ({ name, visible: true }))
 }
 
+export function defaultTaxSettings() {
+  return {
+    year: new Date().getFullYear(),
+    manualSalary: '',
+    dependents: 0,
+    children: 0,
+    isHomeless: false,
+    extraMedical: 0,
+    extraEducation: 0,
+    extraDonation: 0,
+    extraInsurance: 0,
+    monthlyRent: 0,
+    prepaidTax: 0,
+  }
+}
+
+export function normalizeTaxSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const year = Number(source.year)
+  return {
+    year: Number.isFinite(year) && year > 2000 ? Math.round(year) : new Date().getFullYear(),
+    manualSalary: source.manualSalary === '' || source.manualSalary == null ? '' : num(source.manualSalary),
+    dependents: Math.max(0, Math.round(num(source.dependents))),
+    children: Math.max(0, Math.round(num(source.children))),
+    isHomeless: Boolean(source.isHomeless),
+    extraMedical: Math.max(0, num(source.extraMedical)),
+    extraEducation: Math.max(0, num(source.extraEducation)),
+    extraDonation: Math.max(0, num(source.extraDonation)),
+    extraInsurance: Math.max(0, num(source.extraInsurance)),
+    monthlyRent: Math.max(0, num(source.monthlyRent)),
+    prepaidTax: Math.max(0, num(source.prepaidTax)),
+  }
+}
+
 export function normalizeStageConfig(value) {
   const used = new Set()
   const ordered = []
@@ -196,7 +239,11 @@ export function normalizeStageConfig(value) {
 export function buildDefaultDoc() {
   return {
     schemaVersion: SCHEMA_VERSION,
-    settings: { theme: 'light', stages: defaultStageConfig() },
+    settings: {
+      theme: 'light',
+      stages: defaultStageConfig(),
+      taxSettlement: defaultTaxSettings(),
+    },
     stages: {
       income: { categories: defaultCategories('수입'), entries: [] },
       expense: {
@@ -236,6 +283,7 @@ export function normalizeDoc(raw) {
     settings: {
       theme: source.settings?.theme === 'dark' ? 'dark' : 'light',
       stages: normalizeStageConfig(source.settings?.stages),
+      taxSettlement: normalizeTaxSettings(source.settings?.taxSettlement),
     },
     stages: {
       income: {

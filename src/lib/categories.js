@@ -40,3 +40,27 @@ export const INVEST_KINDS = ['예금', '적금', '주식']
 
 export const INVEST_COLOR = '#0e7490'
 export const SUMMARY_COLOR = '#7c3aed'
+export const TAX_COLOR = '#0f766e'
+
+// Maps a 지출 category name to a 연말정산 deduction bucket. The user can rename
+// categories freely, so the stage falls back to keyword matching too — this
+// table only covers the default category set.
+export const TAX_CATEGORY_BUCKET = {
+  '의료/건강': '의료비',
+  보험: '보장성보험',
+  교육: '교육비',
+  경조사: '기부금',
+  '주거/관리': '월세',
+}
+
+// Keyword fallbacks for user-renamed categories.
+export const TAX_CATEGORY_KEYWORDS = [
+  { bucket: '의료비', keywords: ['의료', '병원', '약국', '치과'] },
+  { bucket: '보장성보험', keywords: ['보험', '보장성'] },
+  { bucket: '교육비', keywords: ['교육', '학원', '등록금', '학비'] },
+  { bucket: '기부금', keywords: ['기부', '후원'] },
+  { bucket: '월세', keywords: ['월세', '임차'] },
+  { bucket: '전통시장', keywords: ['전통시장', '시장'] },
+  { bucket: '대중교통', keywords: ['대중교통', '지하철', '버스'] },
+  { bucket: '도서공연', keywords: ['도서', '공연', '박물관', '미술관', '영화'] },
+]

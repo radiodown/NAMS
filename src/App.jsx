@@ -5,12 +5,13 @@ import { useInvestments } from './lib/useInvestments'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
 import { todayStr } from './lib/format'
-import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR } from './lib/categories'
+import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
 import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from './lib/fixedExpenseEntries'
 import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
 import SummaryStage from './components/SummaryStage'
+import TaxSettlementStage from './components/TaxSettlementStage'
 import SettingsModal from './components/SettingsModal'
 import { clearStoredData as clearAppStoredData, useStoredSlice } from './lib/store'
 import { STAGE_TABS as TABS, normalizeStageConfig, defaultStageConfig } from './lib/schema'
@@ -35,6 +36,7 @@ const TAB_COLOR = {
   '지출 관리': STAGE_META.지출.color,
   투자: INVEST_COLOR,
   그래프요약: SUMMARY_COLOR,
+  연말정산: TAX_COLOR,
 }
 
 function shiftMonth(month, offset) {
@@ -449,7 +451,13 @@ export default function App() {
       )}
 
       <div className="stage-transition" key={tab}>
-        {tab === '그래프요약' ? (
+        {tab === '연말정산' ? (
+          <TaxSettlementStage
+            entries={entriesWithCurrentFixed}
+            investments={invest.items}
+            paymentMethods={paymentMethods.items}
+          />
+        ) : tab === '그래프요약' ? (
           <SummaryStage entries={entriesWithCurrentFixed} investments={invest.items} />
         ) : tab === '투자' ? (
           <InvestmentStage investments={invest} />

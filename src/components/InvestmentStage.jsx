@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import { INVEST_META, INVEST_KINDS } from '../lib/categories'
+import { TAX_BENEFIT_TAGS } from '../lib/schema'
 import { compactKRW, formatKRW, todayStr } from '../lib/format'
 import { exchangeRateMap, productMetrics, summarize } from '../lib/investments'
 import { parseNumberInput } from '../lib/numberInput'
@@ -71,6 +72,7 @@ const blankForm = (kind = '예금') => ({
   color: defaultColor(kind),
   quoteSymbol: '',
   currentPrice: '',
+  taxBenefit: '없음',
 })
 
 function formFromProduct(p) {
@@ -91,6 +93,7 @@ function formFromProduct(p) {
     color: p.color || defaultColor(p.kind),
     quoteSymbol: p.quoteSymbol || '',
     currentPrice: p.currentPrice != null ? String(p.currentPrice) : '',
+    taxBenefit: p.taxBenefit && TAX_BENEFIT_TAGS.includes(p.taxBenefit) ? p.taxBenefit : '없음',
   }
 }
 
@@ -287,6 +290,7 @@ export default function InvestmentStage({ investments }) {
         rate: parseNumberInput(form.rate) || 0,
         months,
         method: form.method,
+        taxBenefit: form.taxBenefit || '없음',
       }
     } else if (kind === '적금') {
       const monthly = parseNumberInput(form.monthly)
@@ -304,6 +308,7 @@ export default function InvestmentStage({ investments }) {
         months,
         method: form.method,
         round: form.round === '' ? '' : parseNumberInput(form.round),
+        taxBenefit: form.taxBenefit || '없음',
       }
     } else {
       const shares = parseNumberInput(form.shares)
@@ -334,6 +339,7 @@ export default function InvestmentStage({ investments }) {
         quoteSymbol,
         quoteCurrency: currency,
         currentPrice: form.currentPrice === '' ? nextBuyPrice : parseNumberInput(form.currentPrice),
+        taxBenefit: form.taxBenefit || '없음',
       }
     }
     if (editingId) {
@@ -763,6 +769,22 @@ export default function InvestmentStage({ investments }) {
               </div>
             </div>
           )}
+
+          <div className="field field-wide">
+            <label>연말정산 세제혜택</label>
+            <div className="seg seg-sm tax-benefit-seg">
+              {TAX_BENEFIT_TAGS.map((tag) => (
+                <button
+                  type="button"
+                  key={tag}
+                  className={form.taxBenefit === tag ? 'on' : ''}
+                  onClick={() => set('taxBenefit', tag)}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="field field-wide">
             <label>색상</label>
