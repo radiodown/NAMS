@@ -2086,9 +2086,23 @@ td.memo {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 
+.invest-card.stock-clickable {
+  cursor: pointer;
+}
+
+.invest-card.stock-clickable.selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+}
+
 /* ---------- invest card — drag-and-drop / touch reordering ---------- */
 .invest-card[draggable='true'] {
   cursor: grab;
+}
+
+.invest-card.stock-clickable[draggable='true'] {
+  cursor: pointer;
 }
 
 .invest-card[draggable='true']:active {
@@ -2234,6 +2248,113 @@ td.memo {
   font-weight: 700;
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+
+.invest-stock-chart-card {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.invest-stock-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invest-stock-chart-kicker {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.invest-stock-chart-head h3 {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.invest-stock-chart-change {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.invest-stock-chart-change span {
+  color: inherit;
+}
+
+.invest-stock-chart-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.stock-range-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(54px, 1fr));
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.stock-range-toggle button {
+  min-height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.stock-range-toggle button.on {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: var(--shadow);
+}
+
+.invest-stock-chart-plot {
+  width: 100%;
+  min-width: 0;
+}
+
+.invest-chart-state {
+  min-height: 250px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+  padding: 16px;
+}
+
+.invest-chart-state.error {
+  color: #dc2626;
+  background: #fef2f2;
+  border-color: #fecaca;
 }
 
 .invest-spec {
@@ -2554,6 +2675,15 @@ td.memo {
 
   .invest-widget-grid {
     grid-template-columns: 1fr;
+  }
+
+  .invest-stock-chart-head {
+    flex-direction: column;
+  }
+
+  .invest-stock-chart-actions,
+  .stock-range-toggle {
+    width: 100%;
   }
 
   .payment-form {

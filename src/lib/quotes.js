@@ -28,12 +28,16 @@ function isLocalDev() {
   )
 }
 
-function yahooChartPath(symbol) {
-  return `/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1d`
+function yahooChartPath(symbol, options = {}) {
+  const params = new URLSearchParams({
+    range: options.range || '1d',
+    interval: options.interval || '1d',
+  })
+  return `/v8/finance/chart/${encodeURIComponent(symbol)}?${params.toString()}`
 }
 
-function yahooChartUrl(symbol) {
-  const path = yahooChartPath(symbol)
+function yahooChartUrl(symbol, options) {
+  const path = yahooChartPath(symbol, options)
   if (isLocalDev()) return `/api/yahoo${path}`
 
   // GitHub Pages has no server-side proxy, and Yahoo's chart endpoint is not
@@ -115,6 +119,34 @@ async function fetchYahooQuote(symbol, emptyMessage) {
   return quoteFromYahooData(await fetchJson(yahooChartUrl(symbol)), symbol)
 }
 
+function historyFromYahooData(data, fallbackSymbol) {
+  if (data?.code || data?.status) {
+    throw new Error(data?.readableMessage || data?.message || '그래프 조회 실패')
+  }
+
+  const error = data?.chart?.error
+  if (error) throw new Error(error.description || error.message || '그래프 조회 실패')
+
+  const result = data?.chart?.result?.[0]
+  const timestamps = result?.timestamp || []
+  const closes = result?.indicators?.quote?.[0]?.close || []
+  const meta = result?.meta || {}
+  const points = timestamps
+    .map((seconds, index) => ({
+      date: new Date(Number(seconds) * 1000).toISOString().slice(0, 10),
+      price: Number(closes[index]),
+    }))
+    .filter((point) => point.date && Number.isFinite(point.price) && point.price > 0)
+
+  if (points.length === 0) throw new Error('그래프 데이터를 찾을 수 없습니다.')
+
+  return {
+    symbol: meta.symbol || fallbackSymbol,
+    currency: meta.currency || '',
+    points,
+  }
+}
+
 async function fetchFrankfurterRate(base, target) {
   const baseCurrency = normalizeCurrencyCode(base)
   const targetCurrency = normalizeCurrencyCode(target, 'KRW')
@@ -149,6 +181,21 @@ async function fetchFrankfurterRate(base, target) {
 
 export async function fetchStockQuote(input) {
   return fetchYahooQuote(normalizeStockSymbol(input), '종목 코드가 없습니다.')
+}
+
+export async function fetchStockHistory(input, options = {}) {
+  const symbol = normalizeStockSymbol(input)
+  if (!symbol) throw new Error('종목 코드가 없습니다.')
+
+  return historyFromYahooData(
+    await fetchJson(
+      yahooChartUrl(symbol, {
+        range: options.range || '3mo',
+        interval: options.interval || '1d',
+      })
+    ),
+    symbol
+  )
 }
 
 export async function fetchExchangeRate(base, target = 'KRW') {

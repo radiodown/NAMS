@@ -1,10 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { INVEST_META, INVEST_KINDS } from '../lib/categories'
-import { formatKRW, todayStr } from '../lib/format'
+import { compactKRW, formatKRW, todayStr } from '../lib/format'
 import { exchangeRateMap, productMetrics, summarize } from '../lib/investments'
 import { parseNumberInput } from '../lib/numberInput'
 import {
   fetchExchangeRate,
+  fetchStockHistory,
   fetchStockQuote,
   normalizeCurrencyCode,
   normalizeStockSymbol,
@@ -30,6 +41,11 @@ const REP_FX_PAIRS = [
 ]
 const REP_FX_INTERVAL_MS = 2800
 const REP_FX_REFRESH_MS = 60000
+const STOCK_CHART_RANGES = [
+  { label: '1개월', value: '1mo', interval: '1d' },
+  { label: '3개월', value: '3mo', interval: '1d' },
+  { label: '1년', value: '1y', interval: '1wk' },
+]
 
 // Long-press duration before a touch becomes a widget drag, and how far the
 // finger may stray during that wait before it counts as a scroll instead.
@@ -85,6 +101,19 @@ const formatCurrency = (n, currency) =>
   currency === 'KRW'
     ? formatKRW(n)
     : `${(Number(n) || 0).toLocaleString('ko-KR', { maximumFractionDigits: 2 })} ${currency}`
+const signedCurrency = (n, currency) => `${n >= 0 ? '+' : ''}${formatCurrency(n, currency)}`
+const compactCurrency = (n, currency) =>
+  currency === 'KRW'
+    ? compactKRW(n)
+    : (Number(n) || 0).toLocaleString('ko-KR', {
+        notation: 'compact',
+        maximumFractionDigits: 1,
+      })
+const formatChartDate = (value) => {
+  const [, month, day] = String(value || '').split('-')
+  if (!month || !day) return value
+  return `${Number(month)}/${Number(day)}`
+}
 
 function additionalBuyPreview(form) {
   const shares = parseNumberInput(form.shares)
@@ -111,12 +140,20 @@ export default function InvestmentStage({ investments }) {
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
   const [quoteStatus, setQuoteStatus] = useState({})
+  const [activeStockId, setActiveStockId] = useState(null)
 
   // rawItems feeds summarize/exchangeRateMap so legacy 환율 widgets keep
   // providing FX rates for stock conversion. 환율 items contribute 0 to totals
   // so including them does not skew the numbers.
   const totals = useMemo(() => summarize(rawItems, today), [rawItems, today])
   const rates = useMemo(() => exchangeRateMap(rawItems), [rawItems])
+
+  useEffect(() => {
+    if (!activeStockId) return
+    if (!items.some((p) => p.id === activeStockId && p.kind === '주식')) {
+      setActiveStockId(null)
+    }
+  }, [activeStockId, items])
 
   const [draggingId, setDraggingId] = useState(null)
   const [dropId, setDropId] = useState(null)
@@ -331,7 +368,13 @@ export default function InvestmentStage({ investments }) {
     if (window.confirm(`투자 상품 '${p.name}'을(를) 삭제할까요?`)) {
       removeItem(p.id)
       if (editingId === p.id) cancelEdit()
+      if (activeStockId === p.id) setActiveStockId(null)
     }
+  }
+
+  function toggleStockChart(p) {
+    if (p.kind !== '주식') return
+    setActiveStockId((id) => (id === p.id ? null : p.id))
   }
 
   const draggingItem = draggingId ? items.find((it) => it.id === draggingId) || null : null
@@ -790,24 +833,30 @@ export default function InvestmentStage({ investments }) {
       ) : (
         <div className="invest-widget-grid">
           {items.map((p) => (
-            <ProductCard
-              key={p.id}
-              product={p}
-              today={today}
-              rates={rates}
-              editing={editingId === p.id}
-              dragging={draggingId === p.id}
-              dropTarget={dropId === p.id}
-              quoteStatus={quoteStatus[p.id]}
-              onEdit={() => startEdit(p)}
-              onRemove={() => handleRemove(p)}
-              onDragStart={(e) => handleDragStart(e, p)}
-              onDragEnd={handleDragEnd}
-              onDragOver={(e) => handleDragOver(e, p)}
-              onDragLeave={(e) => handleDragLeave(e, p)}
-              onDrop={(e) => handleDrop(e, p)}
-              onTouchStart={(e) => handleTouchStart(e, p)}
-            />
+            <Fragment key={p.id}>
+              <ProductCard
+                product={p}
+                today={today}
+                rates={rates}
+                editing={editingId === p.id}
+                selected={activeStockId === p.id}
+                dragging={draggingId === p.id}
+                dropTarget={dropId === p.id}
+                quoteStatus={quoteStatus[p.id]}
+                onClick={() => toggleStockChart(p)}
+                onEdit={() => startEdit(p)}
+                onRemove={() => handleRemove(p)}
+                onDragStart={(e) => handleDragStart(e, p)}
+                onDragEnd={handleDragEnd}
+                onDragOver={(e) => handleDragOver(e, p)}
+                onDragLeave={(e) => handleDragLeave(e, p)}
+                onDrop={(e) => handleDrop(e, p)}
+                onTouchStart={(e) => handleTouchStart(e, p)}
+              />
+              {activeStockId === p.id && p.kind === '주식' && (
+                <StockChartPanel product={p} onClose={() => setActiveStockId(null)} />
+              )}
+            </Fragment>
           ))}
         </div>
       )}
@@ -834,9 +883,11 @@ function ProductCard({
   today,
   rates,
   editing,
+  selected,
   dragging,
   dropTarget,
   quoteStatus,
+  onClick,
   onEdit,
   onRemove,
   onDragStart,
@@ -855,6 +906,7 @@ function ProductCard({
   let kindDetail = ''
   let profitText = `수익 ${signedKRW(m.profit)}`
   let valueText = formatKRW(m.current)
+  const clickable = p.kind === '주식'
 
   if (p.kind === '예금') {
     kindDetail = `예금 · ${m.elapsed}/${m.months}개월`
@@ -876,12 +928,26 @@ function ProductCard({
 
   return (
     <div
-      className={`invest-card${editing ? ' editing' : ''}${dragging ? ' dragging' : ''}${
+      className={`invest-card${clickable ? ' stock-clickable' : ''}${editing ? ' editing' : ''}${
+        selected ? ' selected' : ''
+      }${dragging ? ' dragging' : ''}${
         dropTarget ? ' drop-target' : ''
       }`}
       style={{ '--accent': color }}
       data-card-id={p.id}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-expanded={clickable ? selected : undefined}
+      aria-label={clickable ? `${p.name} 주식 그래프 ${selected ? '닫기' : '보기'}` : undefined}
       draggable
+      onClick={clickable ? onClick : undefined}
+      onKeyDown={(e) => {
+        if (!clickable || e.target.closest?.('button')) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      }}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onDragOver={onDragOver}
@@ -900,12 +966,23 @@ function ProductCard({
           ) : (
             <span className="invest-card-date">{p.date}</span>
           )}
-          <button className="icon-btn" onClick={onEdit} aria-label={`${p.name} 수정`} title="수정">
+          <button
+            className="icon-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              onEdit()
+            }}
+            aria-label={`${p.name} 수정`}
+            title="수정"
+          >
             ✎
           </button>
           <button
             className="icon-btn danger"
-            onClick={onRemove}
+            onClick={(e) => {
+              e.stopPropagation()
+              onRemove()
+            }}
             aria-label={`${p.name} 삭제`}
             title="삭제"
           >
@@ -920,6 +997,153 @@ function ProductCard({
         <div className={`invest-widget-profit ${profitClass(m.profit)}`}>{profitText}</div>
         <div className="invest-widget-detail">{kindDetail}</div>
       </div>
+    </div>
+  )
+}
+
+function StockChartPanel({ product: p, onClose }) {
+  const [range, setRange] = useState(STOCK_CHART_RANGES[1].value)
+  const [chart, setChart] = useState({
+    state: 'loading',
+    points: [],
+    currency: p.quoteCurrency || p.currency || 'KRW',
+    symbol: p.quoteSymbol || p.symbol || '',
+    error: '',
+  })
+  const activeRange =
+    STOCK_CHART_RANGES.find((option) => option.value === range) || STOCK_CHART_RANGES[1]
+  const color = p.color || INVEST_META[p.kind].color
+
+  useEffect(() => {
+    const symbol = p.quoteSymbol || p.symbol
+    if (!symbol) {
+      setChart((prev) => ({
+        ...prev,
+        state: 'error',
+        points: [],
+        error: '종목 코드가 없습니다.',
+      }))
+      return undefined
+    }
+
+    let cancelled = false
+    setChart((prev) => ({ ...prev, state: 'loading', error: '' }))
+    fetchStockHistory(symbol, activeRange)
+      .then((history) => {
+        if (cancelled) return
+        setChart({
+          state: 'ok',
+          points: history.points,
+          currency: normalizeCurrencyCode(history.currency || p.quoteCurrency || p.currency, 'KRW'),
+          symbol: history.symbol || symbol,
+          error: '',
+        })
+      })
+      .catch((error) => {
+        if (cancelled) return
+        setChart((prev) => ({
+          ...prev,
+          state: 'error',
+          points: [],
+          error: error?.message || '그래프 조회 실패',
+        }))
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeRange, p.currency, p.quoteCurrency, p.quoteSymbol, p.symbol])
+
+  const points = chart.points
+  const currency = chart.currency || p.quoteCurrency || p.currency || 'KRW'
+  const first = points[0]?.price || 0
+  const last = points[points.length - 1]?.price || 0
+  const change = first > 0 && last > 0 ? last - first : 0
+  const changePct = first > 0 && last > 0 ? (change / first) * 100 : 0
+  const buyPrice = Number(p.buyPrice) || 0
+
+  return (
+    <div className="invest-stock-chart-card" style={{ '--accent': color }}>
+      <div className="invest-stock-chart-head">
+        <div>
+          <div className="invest-stock-chart-kicker">{chart.symbol || p.quoteSymbol || '주식'}</div>
+          <h3>{p.name} 현재가 추이</h3>
+          <p className={`invest-stock-chart-change ${profitClass(change)}`}>
+            {last > 0 ? formatCurrency(last, currency) : '조회중'}
+            {first > 0 && last > 0 && (
+              <span>
+                {' '}
+                {signedCurrency(change, currency)} ({changePct >= 0 ? '+' : ''}
+                {changePct.toFixed(2)}%)
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="invest-stock-chart-actions">
+          <div className="stock-range-toggle" aria-label="그래프 기간">
+            {STOCK_CHART_RANGES.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={range === option.value ? 'on' : ''}
+                onClick={() => setRange(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="그래프 닫기" title="닫기">
+            ×
+          </button>
+        </div>
+      </div>
+
+      {chart.state === 'loading' ? (
+        <div className="invest-chart-state">그래프 조회중</div>
+      ) : chart.state === 'error' ? (
+        <div className="invest-chart-state error">{chart.error}</div>
+      ) : (
+        <div className="invest-stock-chart-plot">
+          <ResponsiveContainer width="100%" height={250}>
+            <LineChart data={points} margin={{ top: 12, right: 12, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" />
+              <XAxis
+                dataKey="date"
+                tickFormatter={formatChartDate}
+                fontSize={12}
+                tickMargin={8}
+                minTickGap={22}
+              />
+              <YAxis
+                tickFormatter={(value) => compactCurrency(value, currency)}
+                fontSize={12}
+                width={54}
+                domain={['auto', 'auto']}
+              />
+              <Tooltip
+                formatter={(value) => [formatCurrency(value, currency), '종가']}
+                labelFormatter={(value) => value}
+              />
+              {buyPrice > 0 && (
+                <ReferenceLine
+                  y={buyPrice}
+                  stroke="#94a3b8"
+                  strokeDasharray="4 4"
+                  label={{ value: '평단', position: 'insideTopRight', fill: '#64748b', fontSize: 12 }}
+                />
+              )}
+              <Line
+                type="monotone"
+                dataKey="price"
+                stroke={color}
+                strokeWidth={2.5}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   )
 }
