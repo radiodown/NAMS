@@ -2,13 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLedger } from './lib/useLedger'
 import { useFixedExpenses } from './lib/useFixedExpenses'
 import { useInvestments } from './lib/useInvestments'
+import { useInvestmentSimulations } from './lib/useInvestmentSimulations'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
 import { todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
+import { INVEST_SIM_COLOR } from './lib/investmentSimulation'
 import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from './lib/fixedExpenseEntries'
 import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
+import InvestmentSimulationStage from './components/InvestmentSimulationStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
 import SummaryStage from './components/SummaryStage'
 import TaxSettlementStage from './components/TaxSettlementStage'
@@ -35,6 +38,7 @@ const TAB_COLOR = {
   지출: STAGE_META.지출.color,
   '지출 관리': STAGE_META.지출.color,
   투자: INVEST_COLOR,
+  '투자 시뮬레이션': INVEST_SIM_COLOR,
   그래프요약: SUMMARY_COLOR,
   연말정산: TAX_COLOR,
 }
@@ -50,6 +54,7 @@ export default function App() {
   const ledger = useLedger()
   const fixed = useFixedExpenses()
   const invest = useInvestments()
+  const simulations = useInvestmentSimulations()
   const categoryStore = useCategories()
   const paymentMethods = usePaymentMethods()
   const { entries } = ledger
@@ -141,7 +146,7 @@ export default function App() {
       const count = countBackupItems(parsed)
       if (
         !window.confirm(
-          `현재 데이터를 이 백업(거래·고정지출·투자 ${count}건)으로 모두 교체합니다.\n계속할까요?`
+          `현재 데이터를 이 백업(거래·고정지출·투자·시뮬레이션 ${count}건)으로 모두 교체합니다.\n계속할까요?`
         )
       ) {
         return
@@ -154,12 +159,17 @@ export default function App() {
   }
 
   const counts = useMemo(() => {
-    const c = { 수입: 0, 지출: 0, 투자: invest.items.length }
+    const c = {
+      수입: 0,
+      지출: 0,
+      투자: invest.items.length,
+      '투자 시뮬레이션': simulations.items.length,
+    }
     transactionEntries.forEach((e) => {
       if (e.type === '수입' || e.type === '지출') c[e.type] += 1
     })
     return c
-  }, [transactionEntries, invest.items])
+  }, [transactionEntries, invest.items, simulations.items])
 
   const visibleCount = stageConfig.filter((stage) => stage.visible).length
 
@@ -461,6 +471,8 @@ export default function App() {
           <SummaryStage entries={entriesWithCurrentFixed} investments={invest.items} />
         ) : tab === '투자' ? (
           <InvestmentStage investments={invest} />
+        ) : tab === '투자 시뮬레이션' ? (
+          <InvestmentSimulationStage investments={invest.items} simulations={simulations} />
         ) : tab === '지출 관리' ? (
           <ExpenseManagementStage
             entries={transactionEntries}

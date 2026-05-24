@@ -3,12 +3,13 @@
 // shape stays consistent.
 import { STAGE_META } from './categories'
 import { createId } from './id'
+import { normalizeSimulationScenario } from './investmentSimulation'
 import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
 
 export const SCHEMA_VERSION = 1
 
 // UI tab names in default order. The stage config persists name + visibility.
-export const STAGE_TABS = ['수입', '지출', '지출 관리', '투자', '그래프요약', '연말정산']
+export const STAGE_TABS = ['수입', '지출', '지출 관리', '투자', '투자 시뮬레이션', '그래프요약', '연말정산']
 
 // Tax-benefit tags an investment product can claim. Drives 연말정산 stage matching.
 export const TAX_BENEFIT_TAGS = ['없음', 'ISA', '연금저축', 'IRP', '주택청약', '청년도약계좌']
@@ -252,7 +253,7 @@ export function buildDefaultDoc() {
         entries: [],
         fixed: { templates: [], records: [], closedMonths: [], lastActiveMonth: '' },
       },
-      investment: { products: [] },
+      investment: { products: [], simulations: [] },
     },
   }
 }
@@ -303,6 +304,7 @@ export function normalizeDoc(raw) {
       },
       investment: {
         products: arr(investment.products).map(normalizeInvestment),
+        simulations: arr(investment.simulations).map(normalizeSimulationScenario),
       },
     },
   }

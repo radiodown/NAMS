@@ -1415,6 +1415,230 @@ td.memo {
   border-color: #7c3aed;
 }
 
+/* ---------- investment simulation stage ---------- */
+.simulation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.simulation-control-card,
+.simulation-saved-card {
+  margin-bottom: 0;
+}
+
+.simulation-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.simulation-form.compact {
+  margin-top: 14px;
+}
+
+.simulation-form .field-wide {
+  grid-column: span 2;
+}
+
+.simulation-strategy {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.simulation-strategy > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.simulation-strategy-seg {
+  align-self: flex-start;
+  flex-wrap: wrap;
+}
+
+.simulation-strategy-seg button {
+  white-space: nowrap;
+}
+
+.simulation-count {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.simulation-empty {
+  padding: 44px 12px;
+}
+
+.simulation-scenario-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.simulation-scenario-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.scenario-main {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+}
+
+.scenario-main strong,
+.scenario-main span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scenario-main strong {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.scenario-main span {
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.scenario-compare {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.scenario-compare.on {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.scenario-compare input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.simulation-chart-grid {
+  align-items: stretch;
+}
+
+.simulation-wide-chart {
+  grid-column: 1 / -1;
+}
+
+.simulation-events-card {
+  padding-bottom: 16px;
+}
+
+.simulation-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 276px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.simulation-event-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.simulation-event-row div {
+  min-width: 0;
+}
+
+.simulation-event-row strong,
+.simulation-event-row span {
+  display: block;
+}
+
+.simulation-event-row strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.simulation-event-row div span {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.simulation-event-row b {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.event-type {
+  border-radius: 7px;
+  padding: 4px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 900;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.event-type.type-매수,
+.event-type.type-진입 {
+  color: #16a34a;
+  background: #ecfdf5;
+}
+
+.event-type.type-매도,
+.event-type.type-대기 {
+  color: #dc2626;
+  background: #fef2f2;
+}
+
+.event-type.type-시작 {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+}
+
 /* ---------- footer ---------- */
 .app-footer {
   margin-top: 28px;
@@ -2600,6 +2824,7 @@ td.memo {
   .category-chip,
   .stat-card,
   .chart-card,
+  .simulation-scenario-row,
   .payment-method-row,
   .fixed-add-btn,
   .fixed-expense-widget,
@@ -2627,6 +2852,7 @@ td.memo {
   .category-chip:hover,
   .stat-card:hover,
   .chart-card:hover,
+  .simulation-scenario-row:hover,
   .payment-method-row:hover,
   .fixed-add-btn:hover,
   .fixed-expense-widget:hover,
@@ -2707,6 +2933,15 @@ td.memo {
 
   .chart-grid {
     grid-template-columns: 1fr;
+  }
+
+  .simulation-grid,
+  .simulation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .simulation-form .field-wide {
+    grid-column: auto;
   }
 
   .settings-section {
@@ -2791,7 +3026,8 @@ td.memo {
 
   .entry-form,
   .entry-form.expense-form,
-  .invest-form {
+  .invest-form,
+  .simulation-form {
     --entry-control-height: 40px;
     grid-template-columns: 1fr;
     gap: 10px;
@@ -2804,6 +3040,15 @@ td.memo {
 
   .invest-form .field-wide {
     grid-column: auto;
+  }
+
+  .simulation-scenario-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .scenario-compare {
+    grid-column: 1 / -1;
+    justify-content: center;
   }
 
   .field input,
@@ -2849,6 +3094,7 @@ td.memo {
   .form-card-head,
   .management-head,
   .invest-toolbar,
+  .simulation-grid,
   .chart-head {
     display: flex;
     align-items: stretch;
