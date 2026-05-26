@@ -562,7 +562,6 @@ export default function App() {
             fixedRecords={fixed.records}
             paymentMethods={paymentMethods}
             updatePaymentMethod={updatePaymentMethodEverywhere}
-            replacePaymentMethod={replacePaymentMethodEverywhere}
           />
         ) : (
           <LedgerStage
@@ -592,6 +591,9 @@ export default function App() {
             removeCategory={categoryStore.removeCategory}
             paymentMethods={paymentMethods.items}
             addPaymentMethod={paymentMethods.addItem}
+            updatePaymentMethod={updatePaymentMethodEverywhere}
+            removePaymentMethod={paymentMethods.removeItem}
+            replacePaymentMethod={replacePaymentMethodEverywhere}
           />
         )}
       </div>

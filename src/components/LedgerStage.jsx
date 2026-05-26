@@ -87,6 +87,9 @@ export default function LedgerStage({
   removeCategory,
   paymentMethods = [],
   addPaymentMethod,
+  updatePaymentMethod,
+  removePaymentMethod,
+  replacePaymentMethod,
 }) {
   const meta = STAGE_META[type]
   const categoryList = categories?.length ? categories : meta.categories
@@ -95,6 +98,7 @@ export default function LedgerStage({
   const [categoryForm, setCategoryForm] = useState(blankCategoryForm)
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
+  const [methodChange, setMethodChange] = useState({ from: '', to: '' })
   const [mobileEntryOpen, setMobileEntryOpen] = useState(false)
   const [mobileManualOpen, setMobileManualOpen] = useState(false)
   const [quickInput, setQuickInput] = useState('')
@@ -1028,7 +1032,7 @@ export default function LedgerStage({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="fixed-modal-head">
-              <h3>결제수단</h3>
+              <h3>결제수단 관리</h3>
               <button
                 className="fixed-modal-close"
                 onClick={() => setPaymentOpen(false)}
@@ -1040,8 +1044,60 @@ export default function LedgerStage({
             <PaymentMethodManager
               methods={paymentMethods}
               addMethod={addPaymentMethod}
-              showMethods={false}
+              updateMethod={updatePaymentMethod}
+              removeMethod={removePaymentMethod}
             />
+            {type === '지출' && replacePaymentMethod && paymentMethods.length >= 2 && (
+              <section className="payment-replace-section" aria-label="결제수단 변경">
+                <header className="payment-section-head">
+                  <div className="payment-section-title">
+                    <span className="payment-section-badge replace">변경</span>
+                    <h4>기존 지출의 결제수단 일괄 교체</h4>
+                  </div>
+                  <p className="payment-section-hint">
+                    A 결제수단으로 기록된 지출과 고정지출을 B 결제수단으로 옮깁니다.
+                  </p>
+                </header>
+                <form
+                  className="payment-form payment-replace-form"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    if (!methodChange.from || !methodChange.to)
+                      return alert('변경할 결제수단을 선택하세요.')
+                    if (methodChange.from === methodChange.to)
+                      return alert('서로 다른 결제수단을 선택하세요.')
+                    if (replacePaymentMethod(methodChange.from, methodChange.to)) {
+                      setMethodChange({ from: '', to: '' })
+                      alert('기존 지출 데이터의 결제수단을 변경했습니다.')
+                    }
+                  }}
+                >
+                  <div className="payment-field">
+                    <span>기존 (A)</span>
+                    <Picker
+                      value={methodChange.from}
+                      options={paymentMethods.map((m) => ({ value: m.id, label: m.name }))}
+                      placeholder="A 선택"
+                      onChange={(value) => setMethodChange((prev) => ({ ...prev, from: value }))}
+                    />
+                  </div>
+                  <div className="payment-field">
+                    <span>변경 (B)</span>
+                    <Picker
+                      value={methodChange.to}
+                      options={paymentMethods.map((m) => ({ value: m.id, label: m.name }))}
+                      placeholder="B 선택"
+                      onChange={(value) => setMethodChange((prev) => ({ ...prev, to: value }))}
+                    />
+                  </div>
+                  <div className="payment-form-actions">
+                    <button type="submit" className="btn btn-sm btn-accent">
+                      일괄 변경
+                    </button>
+                  </div>
+                </form>
+              </section>
+            )}
           </div>
         </div>
       )}
@@ -1069,7 +1125,11 @@ export default function LedgerStage({
           </div>
         </div>
         {rows.length > 0 && (
-          <div className={`ledger-filter-bar${historyFiltersOpen ? ' mobile-open' : ''}`}>
+          <div
+            className={`ledger-filter-bar ledger-history-filter-bar ${
+              type === '지출' ? 'has-payment' : 'no-payment'
+            }${historyFiltersOpen ? ' mobile-open' : ''}`}
+          >
             <div className="ledger-filter-field ledger-filter-search">
               <span>검색</span>
               <input

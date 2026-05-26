@@ -3,7 +3,6 @@ import { formatKRW, monthOf, todayStr } from '../lib/format'
 import CalendarInput from './CalendarInput'
 import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from '../lib/fixedExpenseEntries'
 import PaymentMethodManager from './PaymentMethodManager'
-import Picker from './Picker'
 
 const EXPENSE_COLOR = '#dc2626'
 
@@ -34,21 +33,16 @@ export default function ExpenseManagementStage({
   fixedRecords = [],
   paymentMethods,
   updatePaymentMethod,
-  replacePaymentMethod,
 }) {
   const [month, setMonth] = useState(() => todayStr().slice(0, 7))
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
-  const [methodChange, setMethodChange] = useState({ from: '', to: '' })
   const [historySearch, setHistorySearch] = useState('')
+  const [paymentOpen, setPaymentOpen] = useState(false)
   const methods = paymentMethods.items
   const periodLabel = periodMode === 'year' ? `${year}년` : month
   const limitMultiplier = periodMode === 'year' ? 12 : 1
   const currentMonth = todayStr().slice(0, 7)
-  const methodOptions = useMemo(
-    () => methods.map((method) => ({ value: method.id, label: method.name })),
-    [methods]
-  )
 
   const fixedRows = useMemo(
     () => {
@@ -167,16 +161,6 @@ export default function ExpenseManagementStage({
   const topCategory = byCategory[0]
   const topMethod = byMethod[0]
 
-  function submitMethodChange(e) {
-    e.preventDefault()
-    if (!methodChange.from || !methodChange.to) return alert('변경할 결제수단을 선택하세요.')
-    if (methodChange.from === methodChange.to) return alert('서로 다른 결제수단을 선택하세요.')
-    if (replacePaymentMethod?.(methodChange.from, methodChange.to)) {
-      setMethodChange({ from: '', to: '' })
-      alert('기존 지출 데이터의 결제수단을 변경했습니다.')
-    }
-  }
-
   return (
     <div className="stage expense-management" style={{ '--accent': EXPENSE_COLOR }}>
       <div className="management-head">
@@ -184,31 +168,40 @@ export default function ExpenseManagementStage({
           <h2 className="section-title">지출 관리</h2>
           <p>결제수단과 카테고리 기준으로 선택한 기간의 지출 흐름을 봅니다.</p>
         </div>
-        <div className="month-picker">
-          <span>분석 기간</span>
-          <div className="period-toggle" role="group" aria-label="분석 기간 단위">
-            <button
-              type="button"
-              className={periodMode === 'month' ? 'on' : ''}
-              onClick={() => setPeriodMode('month')}
-            >
-              월
-            </button>
-            <button
-              type="button"
-              className={periodMode === 'year' ? 'on' : ''}
-              onClick={() => setPeriodMode('year')}
-            >
-              년
-            </button>
+        <div className="management-head-actions">
+          <button
+            type="button"
+            className="btn btn-sm management-payment-btn"
+            onClick={() => setPaymentOpen(true)}
+          >
+            결제수단 관리
+          </button>
+          <div className="month-picker">
+            <span>분석 기간</span>
+            <div className="period-toggle" role="group" aria-label="분석 기간 단위">
+              <button
+                type="button"
+                className={periodMode === 'month' ? 'on' : ''}
+                onClick={() => setPeriodMode('month')}
+              >
+                월
+              </button>
+              <button
+                type="button"
+                className={periodMode === 'year' ? 'on' : ''}
+                onClick={() => setPeriodMode('year')}
+              >
+                년
+              </button>
+            </div>
+            <CalendarInput
+              mode={periodMode}
+              value={periodMode === 'year' ? year : month}
+              onChange={periodMode === 'year' ? setYear : setMonth}
+              placeholder={periodMode === 'year' ? '연도 선택' : '월 선택'}
+              ariaLabel="분석 기간"
+            />
           </div>
-          <CalendarInput
-            mode={periodMode}
-            value={periodMode === 'year' ? year : month}
-            onChange={periodMode === 'year' ? setYear : setMonth}
-            placeholder={periodMode === 'year' ? '연도 선택' : '월 선택'}
-            ariaLabel="분석 기간"
-          />
         </div>
       </div>
 
@@ -294,44 +287,36 @@ export default function ExpenseManagementStage({
         </div>
       </div>
 
-      <div className="card">
-        <h2 className="section-title">결제수단 변경</h2>
-        <form className="payment-form" onSubmit={submitMethodChange}>
-          <div className="payment-field">
-            <span>기존</span>
-            <Picker
-              value={methodChange.from}
-              options={methodOptions}
-              placeholder="A 선택"
-              onChange={(value) => setMethodChange((prev) => ({ ...prev, from: value }))}
+      {paymentOpen && (
+        <div className="fixed-modal-backdrop" onClick={() => setPaymentOpen(false)}>
+          <div
+            className="fixed-modal payment-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="fixed-modal-head">
+              <h3>결제수단 관리</h3>
+              <button
+                className="fixed-modal-close"
+                onClick={() => setPaymentOpen(false)}
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
+            <PaymentMethodManager
+              methods={methods}
+              addMethod={paymentMethods.addItem}
+              updateMethod={updatePaymentMethod}
+              removeMethod={paymentMethods.removeItem}
             />
+            <p className="payment-modal-note">
+              기존 지출의 결제수단을 다른 수단으로 옮기려면 지출 탭의 “결제수단 관리”에서 변경하세요.
+            </p>
           </div>
-          <div className="payment-field">
-            <span>변경</span>
-            <Picker
-              value={methodChange.to}
-              options={methodOptions}
-              placeholder="B 선택"
-              onChange={(value) => setMethodChange((prev) => ({ ...prev, to: value }))}
-            />
-          </div>
-          <div className="payment-form-actions">
-            <button type="submit" className="btn btn-sm btn-accent">
-              변경
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div className="card">
-        <h2 className="section-title">결제수단 설정</h2>
-        <PaymentMethodManager
-          methods={methods}
-          addMethod={paymentMethods.addItem}
-          updateMethod={updatePaymentMethod}
-          removeMethod={paymentMethods.removeItem}
-        />
-      </div>
+        </div>
+      )}
 
       <div className="card">
         <h2 className="section-title">지출 내역</h2>

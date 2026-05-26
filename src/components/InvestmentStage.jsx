@@ -1537,7 +1537,7 @@ function RepresentativeFXCard() {
 
   return (
     <div className="stat-card category-stat-card">
-      <div className="category-stat-roll" key={active ? `${active.base}${active.target}` : 'empty'}>
+      <div className="fx-stat-roll" key={active ? `${active.base}${active.target}` : 'empty'}>
         <div className="label">
           {active ? `${active.label} (${active.base}/${active.target})` : '대표 환율'}
         </div>
