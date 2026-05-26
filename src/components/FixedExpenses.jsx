@@ -4,6 +4,7 @@ import { formatKRW } from '../lib/format'
 import { createId } from '../lib/id'
 import { isLoanInterestCategory } from '../lib/loanInterest'
 import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
+import CategoryInput from './CategoryInput'
 import LoanInterestCalculator from './LoanInterestCalculator'
 import NumberInput from './NumberInput'
 import Picker from './Picker'
@@ -170,6 +171,8 @@ export default function FixedExpenses({
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [categoryAddOpen, setCategoryAddOpen] = useState(false)
+  const [categoryDraft, setCategoryDraft] = useState('')
   const [draggingId, setDraggingId] = useState(null)
   const [dropKey, setDropKey] = useState(null)
   const [touchDragging, setTouchDragging] = useState(false)
@@ -196,10 +199,7 @@ export default function FixedExpenses({
     onCollapsedChange?.(normalized)
   }
 
-  const categoryOptions = useMemo(() => {
-    const current = form.category.trim()
-    return current && !categories.includes(current) ? [...categories, current] : categories
-  }, [categories, form.category])
+  const categoryOptions = categories
   const paymentOptions = useMemo(
     () => [
       { value: '', label: '미지정' },
@@ -301,6 +301,15 @@ export default function FixedExpenses({
     form.color || colorForCategory(form.category.trim() || '기타', categories, colorPalette)
   const loanInterestMode = isExpense && isLoanInterestCategory(form.category)
 
+  function addFixedCategory() {
+    const value = categoryDraft.trim()
+    if (!value) return
+    addCategory?.(type, value)
+    set('category', value)
+    setCategoryDraft('')
+    setCategoryAddOpen(false)
+  }
+
   function defaultFixedForm() {
     const validItems = items.filter(Boolean)
     const latest = validItems[validItems.length - 1]
@@ -360,6 +369,8 @@ export default function FixedExpenses({
   function openAdd() {
     setEditingId(null)
     setForm(defaultFixedForm())
+    setCategoryDraft('')
+    setCategoryAddOpen(false)
     setCollapsed(false)
     setFormOpen(true)
   }
@@ -385,6 +396,8 @@ export default function FixedExpenses({
       loanRound: it.loanRound != null ? String(it.loanRound) : '1',
       loanGraceMonths: it.loanGraceMonths != null ? String(it.loanGraceMonths) : '',
     })
+    setCategoryDraft('')
+    setCategoryAddOpen(false)
     setCollapsed(false)
     setFormOpen(true)
   }
@@ -392,6 +405,8 @@ export default function FixedExpenses({
   function cancelEdit() {
     setEditingId(null)
     setForm(blankForm())
+    setCategoryDraft('')
+    setCategoryAddOpen(false)
     setFormOpen(false)
   }
 
@@ -785,14 +800,55 @@ export default function FixedExpenses({
                       onChange={(e) => set('name', e.target.value)}
                     />
                   </div>
-                  <div className="field">
-                    <label>카테고리</label>
-                    <Picker
+                  <div className="field fixed-category-field">
+                    <div className="fixed-field-label-row">
+                      <label>카테고리</label>
+                      {isExpense && addCategory && (
+                        <button
+                          type="button"
+                          className="btn btn-sm fixed-category-add-toggle"
+                          onClick={() => {
+                            setCategoryDraft('')
+                            setCategoryAddOpen((open) => !open)
+                          }}
+                        >
+                          {categoryAddOpen ? '닫기' : '카테고리 추가'}
+                        </button>
+                      )}
+                    </div>
+                    <CategoryInput
                       value={form.category}
                       options={categoryOptions}
-                      placeholder="카테고리 선택"
+                      placeholder="카테고리 입력"
                       onChange={(value) => set('category', value)}
                     />
+                    {categoryAddOpen && (
+                      <div className="fixed-category-add-row">
+                        <CategoryInput
+                          placeholder="새 카테고리"
+                          options={categoryOptions}
+                          value={categoryDraft}
+                          onChange={setCategoryDraft}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              addFixedCategory()
+                            }
+                            if (e.key === 'Escape') {
+                              setCategoryDraft('')
+                              setCategoryAddOpen(false)
+                            }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-accent"
+                          onClick={addFixedCategory}
+                        >
+                          추가
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <div className="field">
                     <label>색상</label>

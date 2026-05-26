@@ -2833,6 +2833,28 @@ td.memo {
   gap: 10px;
 }
 
+.fixed-field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fixed-category-add-toggle {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+}
+
+.fixed-category-add-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.fixed-category-add-row .btn {
+  min-height: 34px;
+}
+
 .fixed-widget-form .loan-interest-calculator {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -4226,8 +4248,21 @@ td.memo {
     margin-bottom: 10px;
   }
 
+  .mobile-entry-tools-top.expense-tools {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .mobile-entry-tools .btn {
+    min-width: 0;
     min-height: 38px;
+  }
+
+  .mobile-entry-tools-top.expense-tools .btn {
+    padding: 6px 7px;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: keep-all;
   }
 
   .mobile-entry-section {

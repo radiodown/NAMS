@@ -9,6 +9,7 @@ import {
 import { isLoanInterestCategory } from '../lib/loanInterest'
 import { parseAmountInput } from '../lib/numberInput'
 import CalendarInput from './CalendarInput'
+import CategoryInput from './CategoryInput'
 import FixedExpenses from './FixedExpenses'
 import LoanInterestCalculator from './LoanInterestCalculator'
 import NumberInput from './NumberInput'
@@ -58,11 +59,6 @@ function addCategoryTotals(map, rows) {
     const category = row.category || '미분류'
     map.set(category, (map.get(category) || 0) + (Number(row.amount) || 0))
   })
-}
-
-function optionsWithCurrent(options, value) {
-  const current = String(value || '').trim()
-  return current && !options.includes(current) ? [...options, current] : options
 }
 
 export default function LedgerStage({
@@ -115,10 +111,7 @@ export default function LedgerStage({
   const [historyPayment, setHistoryPayment] = useState('')
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false)
 
-  const categoryOptions = useMemo(() => {
-    const current = form.category.trim()
-    return current && !categoryList.includes(current) ? [...categoryList, current] : categoryList
-  }, [categoryList, form.category])
+  const categoryOptions = categoryList
   const paymentOptions = useMemo(
     () => [
       { value: '', label: '미지정' },
@@ -150,12 +143,11 @@ export default function LedgerStage({
     [ledgerRows, type]
   )
   const historyCategoryOptions = useMemo(() => {
-    const names = [...new Set([...categoryList, ...rows.map((row) => row.category)].filter(Boolean))]
     return [
       { value: '', label: '전체 카테고리' },
-      ...names.map((name) => ({ value: name, label: name })),
+      ...categoryList.map((name) => ({ value: name, label: name })),
     ]
-  }, [categoryList, rows])
+  }, [categoryList])
   const historyPaymentOptions = useMemo(
     () => [
       { value: '', label: '전체 결제수단' },
@@ -739,10 +731,10 @@ export default function LedgerStage({
         </div>
         <div className="field">
           <label>카테고리</label>
-          <Picker
+          <CategoryInput
             value={form.category}
             options={categoryOptions}
-            placeholder="카테고리 선택"
+            placeholder="카테고리 입력"
             onChange={(value) => set('category', value)}
           />
         </div>
@@ -928,7 +920,11 @@ export default function LedgerStage({
                 ×
               </button>
             </div>
-            <div className="mobile-entry-tools mobile-entry-tools-top">
+            <div
+              className={`mobile-entry-tools mobile-entry-tools-top${
+                type === '지출' ? ' expense-tools' : ''
+              }`}
+            >
               <button type="button" className="btn btn-sm" onClick={() => setCategoryOpen(true)}>
                 카테고리 관리
               </button>
@@ -995,12 +991,12 @@ export default function LedgerStage({
             </div>
 
             <form className="category-form" onSubmit={submitCategory}>
-              <input
-                type="text"
+              <CategoryInput
                 placeholder="카테고리명"
+                options={categoryList}
                 value={categoryForm.value}
-                onChange={(e) =>
-                  setCategoryForm((prev) => ({ ...prev, value: e.target.value }))
+                onChange={(value) =>
+                  setCategoryForm((prev) => ({ ...prev, value }))
                 }
               />
               <button type="submit" className="btn btn-sm btn-accent">
@@ -1199,7 +1195,7 @@ export default function LedgerStage({
             </div>
             <div className="ledger-filter-field">
               <span>카테고리</span>
-              <Picker
+              <CategoryInput
                 value={historyCategory}
                 options={historyCategoryOptions}
                 placeholder="전체 카테고리"
@@ -1268,7 +1264,6 @@ export default function LedgerStage({
               <tbody>
                 {filteredRows.map((row) => {
                   const inlineEditing = inlineEditId === row.id
-                  const inlineCategoryOptions = optionsWithCurrent(categoryList, inlineDraft.category)
                   return (
                     <tr
                       key={row.id}
@@ -1304,10 +1299,10 @@ export default function LedgerStage({
                       </td>
                       <td data-label="카테고리">
                         {inlineEditing ? (
-                          <Picker
+                          <CategoryInput
                             value={inlineDraft.category}
-                            options={inlineCategoryOptions}
-                            placeholder="카테고리 선택"
+                            options={categoryList}
+                            placeholder="카테고리 입력"
                             onChange={(value) => setInline('category', value)}
                           />
                         ) : (
