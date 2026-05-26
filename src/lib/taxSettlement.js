@@ -8,6 +8,7 @@
 // 변수가 많아 100% 정확한 시뮬레이션은 어렵다. 이 모듈은 평균적인 직장인 케이스를
 // 단순화해 "대략의 절세 효과"를 보여주는 용도.
 import { TAX_CATEGORY_BUCKET, TAX_CATEGORY_KEYWORDS } from './categories'
+import { formatKRW } from './format'
 
 // ---------- 세율표 ----------------------------------------------------------
 const INCOME_TAX_BRACKETS = [
@@ -394,7 +395,7 @@ export function computeTaxSettlement({ entries, investments, paymentMethods, set
 }
 
 // ---------- 절세 팁 ---------------------------------------------------------
-const fmt = (n) => (Number(n) || 0).toLocaleString('ko-KR') + '원'
+const fmt = formatKRW
 
 export function generateTaxTips(result) {
   const tips = []

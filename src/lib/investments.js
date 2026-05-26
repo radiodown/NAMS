@@ -59,11 +59,12 @@ export function depositMetrics(p, today) {
 export function savingsMetrics(p, today) {
   const A = Number(p.monthly) || 0
   const r = (Number(p.rate) || 0) / 100
-  const N = Number(p.months) || 0
+  const N = Math.max(0, Math.floor(Number(p.months) || 0))
   const compound = p.method === '복리'
   const inferred = Math.max(0, monthsBetween(p.date, today) + 1)
-  const manual = p.round === '' || p.round == null ? null : Number(p.round)
-  const roundNow = Math.min(Math.max(manual != null ? manual : inferred, 0), N)
+  const rawManual = p.round === '' || p.round == null ? null : Number(p.round)
+  const manual = Number.isFinite(rawManual) ? rawManual : null
+  const roundNow = Math.min(Math.max(Math.floor(manual != null ? manual : inferred), 0), N)
 
   const valueAtRound = (cRaw) => {
     const c = Math.min(Math.max(Math.floor(cRaw), 0), N)

@@ -1,5 +1,30 @@
 export function formatKRW(n) {
-  return (Number(n) || 0).toLocaleString('ko-KR') + '원'
+  const value = Math.round(Number(n) || 0)
+  const abs = Math.abs(value)
+  const sign = value < 0 ? '-' : ''
+  if (abs < 10000) return sign + abs.toLocaleString('ko-KR') + '원'
+
+  const roundedMan = Math.round(abs / 10000)
+  if (roundedMan < 100) {
+    return (
+      sign +
+      (abs / 10000).toLocaleString('ko-KR', { maximumFractionDigits: 1 }) +
+      '만원'
+    )
+  }
+  if (roundedMan < 10000) return sign + roundedMan.toLocaleString('ko-KR') + '만원'
+
+  const jo = Math.floor(roundedMan / 100000000)
+  const afterJo = roundedMan % 100000000
+  const eok = Math.floor(afterJo / 10000)
+  const man = afterJo % 10000
+  const parts = []
+  if (jo > 0) parts.push(`${jo.toLocaleString('ko-KR')}조`)
+  if (eok > 0) parts.push(`${eok.toLocaleString('ko-KR')}억`)
+  if (man > 0) parts.push(`${man.toLocaleString('ko-KR')}만원`)
+
+  const text = parts.join(' ')
+  return sign + (man > 0 ? text : `${text}원`)
 }
 
 // Compact label for chart axes: 12,340,000 -> "1,234만"

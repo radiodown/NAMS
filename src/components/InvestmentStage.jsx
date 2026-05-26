@@ -297,6 +297,26 @@ function additionalBuyPreview(form) {
   }
 }
 
+function savingsPreviewFromForm(form, today) {
+  const monthly = parseNumberInput(form.monthly)
+  const months = parseNumberInput(form.months)
+  const round = form.round === '' ? '' : parseNumberInput(form.round)
+  if (monthly <= 0 || months <= 0) return null
+
+  return productMetrics(
+    {
+      kind: '적금',
+      date: form.date || today,
+      monthly,
+      rate: parseNumberInput(form.rate) || 0,
+      months,
+      method: form.method,
+      round,
+    },
+    today
+  )
+}
+
 export default function InvestmentStage({ investments }) {
   const { items: rawItems, addItem, updateItem, removeItem, moveItem } = investments
   // Legacy 환율 items from older data are persisted but hidden from the grid —
@@ -462,8 +482,10 @@ export default function InvestmentStage({ investments }) {
     } else if (kind === '적금') {
       const monthly = parseNumberInput(form.monthly)
       const months = parseNumberInput(form.months)
+      const round = form.round === '' ? '' : parseNumberInput(form.round)
       if (!monthly || monthly <= 0) return alert('월 납입액을 입력하세요.')
-      if (!months || months <= 0) return alert('총 회차(개월)를 입력하세요.')
+      if (!months || months <= 0) return alert('만기 회차(개월)를 입력하세요.')
+      if (round !== '' && round > months) return alert('납입 회차는 만기 회차보다 클 수 없습니다.')
       product = {
         kind,
         name: form.name.trim(),
@@ -474,7 +496,7 @@ export default function InvestmentStage({ investments }) {
         rate: parseNumberInput(form.rate) || 0,
         months,
         method: form.method,
-        round: form.round === '' ? '' : parseNumberInput(form.round),
+        round,
         taxBenefit: form.taxBenefit || '없음',
       }
     } else {
@@ -689,6 +711,7 @@ export default function InvestmentStage({ investments }) {
   const nameLabel = form.kind === '주식' ? '종목명' : '상품명'
   const dateLabel = form.kind === '예금' ? '가입일' : form.kind === '적금' ? '시작일' : '매수일'
   const stockBuyPreview = form.kind === '주식' ? additionalBuyPreview(form) : null
+  const savingsPreview = form.kind === '적금' ? savingsPreviewFromForm(form, today) : null
 
   return (
     <div className="stage" style={{ '--accent': INVEST_META[form.kind].color }}>
@@ -822,7 +845,7 @@ export default function InvestmentStage({ investments }) {
                 />
               </div>
               <div className="field">
-                <label>총 회차 (개월)</label>
+                <label>만기 회차 (개월)</label>
                 <NumberInput
                   min="1"
                   decimal={false}
@@ -832,15 +855,26 @@ export default function InvestmentStage({ investments }) {
                 />
               </div>
               <div className="field">
-                <label>현재 회차 (선택 · 미입력 시 날짜로 계산)</label>
+                <label>납입 회차</label>
                 <NumberInput
                   min="0"
                   decimal={false}
-                  placeholder="자동 계산"
+                  placeholder="예: 6"
                   value={form.round}
                   onChange={(value) => set('round', value)}
                 />
               </div>
+              {savingsPreview && (
+                <div className="field field-wide invest-savings-preview">
+                  <label>현재 자산</label>
+                  <div className="invest-savings-preview-box">
+                    <strong>{formatKRW(savingsPreview.current)}</strong>
+                    <span>
+                      {savingsPreview.round}회차 · 납입원금 {formatKRW(savingsPreview.cost)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </>
           )}
 

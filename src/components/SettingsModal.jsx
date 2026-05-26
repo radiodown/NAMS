@@ -1,7 +1,7 @@
 import DataControls from './DataControls'
 import DriveBackup from './DriveBackup'
 
-export default function SettingsModal({ onClose, onExport, onImport, onClear }) {
+export default function SettingsModal({ onClose, onExport, onImport, onClear, onFillSample }) {
   return (
     <div className="fixed-modal-backdrop" onClick={onClose}>
       <div
@@ -38,9 +38,12 @@ export default function SettingsModal({ onClose, onExport, onImport, onClear }) 
             <div className="settings-section-head">
               <h4>데이터 초기화</h4>
             </div>
-            <div className="settings-section-actions">
+            <div className="settings-section-actions settings-danger-actions">
               <button className="btn btn-danger" onClick={onClear}>
                 Clear
+              </button>
+              <button className="btn btn-primary" onClick={onFillSample}>
+                샘플 데이터 채우기
               </button>
             </div>
           </section>

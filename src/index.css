@@ -380,6 +380,15 @@ button {
   flex-wrap: wrap;
 }
 
+.settings-danger-actions {
+  align-items: flex-end;
+  flex-direction: column;
+}
+
+.settings-danger-actions .btn {
+  width: 100%;
+}
+
 .drive-section {
   align-items: stretch;
   flex-direction: column;
@@ -665,6 +674,7 @@ button {
 }
 
 .stat-card {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -689,7 +699,12 @@ button {
   margin-top: 6px;
   font-size: 22px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+  line-height: 1.18;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .stat-card .value.accent {
@@ -701,7 +716,8 @@ button {
   font-size: 13px;
   font-weight: 800;
   color: var(--muted);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .month-change.up {
@@ -936,7 +952,9 @@ button {
 .loan-payment-summary b {
   color: var(--accent);
   font-size: 15px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .loan-interest-result .btn {
@@ -1556,17 +1574,6 @@ button {
   flex-wrap: wrap;
 }
 
-.management-payment-btn {
-  align-self: center;
-}
-
-.management-payment-actions {
-  display: flex;
-  gap: 6px;
-  align-self: center;
-  flex-wrap: wrap;
-}
-
 .payment-field {
   display: flex;
   flex-direction: column;
@@ -1845,9 +1852,11 @@ button {
 }
 
 .payment-method-row-main > b {
+  min-width: 0;
   font-size: 13px;
   font-weight: 800;
   color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .payment-method-row-kind {
@@ -1860,11 +1869,14 @@ button {
 }
 
 .payment-method-row-meta {
+  min-width: 0;
   font-size: 11px;
   font-weight: 700;
   color: var(--muted);
   flex-basis: 100%;
   line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .payment-method-row div:first-child {
@@ -2470,8 +2482,12 @@ td.memo {
 }
 
 .simulation-event-row b {
+  min-width: 0;
   font-size: 12px;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-align: right;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .event-type {
@@ -2544,6 +2560,7 @@ td.memo {
 }
 
 .fixed-summary {
+  min-width: 0;
   margin-left: auto;
   display: flex;
   flex-direction: column;
@@ -2556,12 +2573,16 @@ td.memo {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  min-width: 0;
 }
 
 .fixed-summary-total {
+  min-width: 0;
   font-size: 15px;
   font-weight: 800;
   color: var(--accent);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .fixed-summary-sub {
@@ -2629,6 +2650,7 @@ td.memo {
 }
 
 .fixed-expense-widget {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
@@ -2705,10 +2727,13 @@ td.memo {
 }
 
 .fixed-expense-amount {
+  min-width: 0;
   font-size: 17px;
   font-weight: 800;
   line-height: 1.15;
   color: var(--accent);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .fixed-expense-name {
@@ -3038,6 +3063,36 @@ td.memo {
   color: var(--accent);
   font-size: 13px;
   font-weight: 800;
+}
+
+.invest-savings-preview-box {
+  min-height: 39px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.invest-savings-preview-box strong {
+  min-width: 0;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.invest-savings-preview-box span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 
 .invest-toolbar {
@@ -3652,15 +3707,21 @@ td.memo {
 }
 
 .invest-widget-value {
+  min-width: 0;
   font-size: 18px;
   font-weight: 800;
   line-height: 1.2;
   color: var(--accent);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .invest-widget-profit {
+  min-width: 0;
   font-size: 12px;
   font-weight: 800;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .invest-widget-detail {
@@ -3801,12 +3862,17 @@ td.memo {
 .figure-value {
   font-size: 22px;
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .figure-sub {
   font-size: 13px;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .invest-rows {
@@ -4782,9 +4848,12 @@ td.memo {
     grid-column: 2;
     grid-row: 1;
     justify-content: flex-end;
+    min-width: 0;
     text-align: right;
     font-size: 14px;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
   }
 
   .ledger-table td[data-label='결제수단'] {
@@ -5027,10 +5096,14 @@ td.memo {
 }
 
 .fixed-bundle-member-amount {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: 11px;
   font-weight: 800;
   color: var(--muted);
+  overflow-wrap: anywhere;
+  text-align: right;
+  word-break: break-word;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5159,6 +5232,7 @@ td.memo {
 }
 
 .tax-row-label {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -5173,10 +5247,13 @@ td.memo {
 }
 
 .tax-row-value {
+  min-width: 0;
   font-size: 14px;
   font-weight: 700;
   text-align: right;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .tax-row-value.bold {

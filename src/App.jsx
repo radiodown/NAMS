@@ -44,6 +44,7 @@ import {
   getSavedConnection,
   saveBackup as saveDriveBackup,
 } from './lib/googleDrive'
+import { buildSampleDocument } from './lib/sampleData'
 
 const TAB_COLOR = {
   수입: STAGE_META.수입.color,
@@ -369,6 +370,21 @@ export default function App() {
     window.location.reload()
   }
 
+  function fillSampleData() {
+    const sample = buildSampleDocument()
+    const count = countBackupItems(sample)
+    if (
+      !window.confirm(
+        `현재 데이터를 전시용 샘플 데이터 ${count}건으로 모두 교체합니다.\n계속할까요?`
+      )
+    ) {
+      return
+    }
+    importBackupDocument(sample)
+    setSettingsOpen(false)
+    setTab('그래프요약')
+  }
+
   useEffect(() => {
     let saving = false
 
@@ -455,6 +471,7 @@ export default function App() {
           onExport={exportJSON}
           onImport={importJSON}
           onClear={clearStoredData}
+          onFillSample={fillSampleData}
         />
       )}
 

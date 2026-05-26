@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
 import CalendarInput from './CalendarInput'
 import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from '../lib/fixedExpenseEntries'
-import PaymentMethodManager from './PaymentMethodManager'
 
 const EXPENSE_COLOR = '#dc2626'
 
@@ -32,15 +31,11 @@ export default function ExpenseManagementStage({
   fixedItems = [],
   fixedRecords = [],
   paymentMethods,
-  updatePaymentMethod,
 }) {
   const [month, setMonth] = useState(() => todayStr().slice(0, 7))
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
   const [historySearch, setHistorySearch] = useState('')
-  const [paymentEditOpen, setPaymentEditOpen] = useState(false)
-  const [paymentListOpen, setPaymentListOpen] = useState(false)
-  const [pendingEditId, setPendingEditId] = useState('')
   const methods = paymentMethods.items
   const periodLabel = periodMode === 'year' ? `${year}년` : month
   const limitMultiplier = periodMode === 'year' ? 12 : 1
@@ -171,22 +166,6 @@ export default function ExpenseManagementStage({
           <p>결제수단과 카테고리 기준으로 선택한 기간의 지출 흐름을 봅니다.</p>
         </div>
         <div className="management-head-actions">
-          <div className="management-payment-actions">
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => setPaymentEditOpen(true)}
-            >
-              결제수단 추가/변경
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => setPaymentListOpen(true)}
-            >
-              결제수단 목록
-            </button>
-          </div>
           <div className="month-picker">
             <span>분석 기간</span>
             <div className="period-toggle" role="group" aria-label="분석 기간 단위">
@@ -297,54 +276,6 @@ export default function ExpenseManagementStage({
           </div>
         </div>
       </div>
-
-      {paymentEditOpen && (
-        <div
-          className="fixed-modal-backdrop"
-          onClick={() => {
-            setPaymentEditOpen(false)
-            setPendingEditId('')
-          }}
-        >
-          <div
-            className="fixed-modal payment-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <PaymentMethodManager
-              view="form"
-              methods={methods}
-              addMethod={paymentMethods.addItem}
-              updateMethod={updatePaymentMethod}
-              initialEditId={pendingEditId}
-            />
-          </div>
-        </div>
-      )}
-
-      {paymentListOpen && (
-        <div className="fixed-modal-backdrop" onClick={() => setPaymentListOpen(false)}>
-          <div
-            className="fixed-modal payment-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <PaymentMethodManager
-              view="list"
-              methods={methods}
-              updateMethod={updatePaymentMethod}
-              removeMethod={paymentMethods.removeItem}
-              onEditRequest={(method) => {
-                setPaymentListOpen(false)
-                setPendingEditId(method.id)
-                setPaymentEditOpen(true)
-              }}
-            />
-          </div>
-        </div>
-      )}
 
       <div className="card">
         <h2 className="section-title">지출 내역</h2>

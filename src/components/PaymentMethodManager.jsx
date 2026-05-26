@@ -67,6 +67,7 @@ export default function PaymentMethodManager({
   const [manualOpen, setManualOpen] = useState(false)
   const [listQuery, setListQuery] = useState('')
   const editing = Boolean(form.id)
+  const canAdd = Boolean(addMethod)
   const canEdit = Boolean(updateMethod)
   const canRemove = Boolean(removeMethod)
   const showForm = view === 'form'
@@ -122,11 +123,13 @@ export default function PaymentMethodManager({
     const payload = buildPayload()
     if (!payload.name) return alert('결제수단명을 입력하세요.')
     if (editing) updateMethod?.(form.id, payload)
-    else addMethod(payload)
+    else if (canAdd) addMethod(payload)
+    else return
     resetForm()
   }
 
   function quickAddFromCard() {
+    if (!canAdd) return
     const payload = buildPayload()
     if (!payload.cardProductId) return
     if (!payload.name) return alert('카드 상품을 선택하세요.')
@@ -309,7 +312,7 @@ export default function PaymentMethodManager({
               </div>
             )}
           </div>
-          {selectedCardProduct && !editing && (
+          {selectedCardProduct && !editing && canAdd && (
             <div className="payment-section-actions">
               <button type="button" className="btn btn-sm btn-accent" onClick={quickAddFromCard}>
                 이 카드로 즉시 추가
@@ -395,10 +398,12 @@ export default function PaymentMethodManager({
                 />
               </div>
               <div className="payment-form-actions">
-                <button type="submit" className="btn btn-sm btn-accent">
-                  {editing ? '수정' : '추가'}
-                </button>
-                {editing && (
+                {(editing || canAdd) && (
+                  <button type="submit" className="btn btn-sm btn-accent">
+                    {editing ? '수정' : '추가'}
+                  </button>
+                )}
+                {editing && canAdd && (
                   <button type="button" className="btn btn-sm" onClick={resetForm}>
                     취소
                   </button>
