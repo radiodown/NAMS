@@ -45,7 +45,9 @@ const REP_FX_PAIRS = [
   { base: 'GBP', target: 'KRW', label: '영국 파운드' },
 ]
 const REP_FX_INTERVAL_MS = 2800
-const REP_FX_REFRESH_MS = 60000
+const STOCK_QUOTE_REFRESH_MS = 1000 * 60
+const FX_QUOTE_REFRESH_MS = 1000 * 60 * 60
+const REP_FX_REFRESH_MS = FX_QUOTE_REFRESH_MS
 const STOCK_CHART_RANGES = [
   { label: '1개월', value: '1mo', interval: '1d' },
   { label: '3개월', value: '3mo', interval: '1d' },
@@ -53,9 +55,9 @@ const STOCK_CHART_RANGES = [
 ]
 const REPORT_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#0891b2', '#7c3aed']
 const STALE_QUOTE_MS = 1000 * 60 * 60 * 72
-const QUOTE_REFRESH_MS = 1000 * 60 * 10
+const QUOTE_REFRESH_MS = STOCK_QUOTE_REFRESH_MS
 const QUOTE_STAGGER_MS = 1400
-const QUOTE_FRESH_MS = 1000 * 60 * 10
+const QUOTE_FRESH_MS = STOCK_QUOTE_REFRESH_MS
 const QUOTE_RETRY_BACKOFF_MS = 1000 * 60 * 20
 const QUOTE_EMPTY_RETRY_BACKOFF_MS = 1000 * 60 * 5
 const BITCOIN_SYMBOL = 'BTC-KRW'
@@ -167,9 +169,9 @@ function isQuoteStale(time) {
 
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
-function isQuoteFresh(time) {
+function isQuoteFresh(time, maxAgeMs = QUOTE_FRESH_MS) {
   const ts = Date.parse(time)
-  return Number.isFinite(ts) && Date.now() - ts < QUOTE_FRESH_MS
+  return Number.isFinite(ts) && Date.now() - ts < maxAgeMs
 }
 
 function quoteSymbolForProduct(product) {
@@ -204,9 +206,9 @@ function chooseStockLookupResult(query, results) {
 }
 
 function needsQuoteRefresh(product) {
-  if (!isQuoteFresh(product?.quoteTime)) return true
+  if (!isQuoteFresh(product?.quoteTime, STOCK_QUOTE_REFRESH_MS)) return true
   const currency = normalizeCurrencyCode(product?.currency || product?.quoteCurrency, 'KRW')
-  return currency !== 'KRW' && !isQuoteFresh(product?.exchangeRateTime)
+  return currency !== 'KRW' && !isQuoteFresh(product?.exchangeRateTime, FX_QUOTE_REFRESH_MS)
 }
 
 function groupedBy(positions, total, keyFn) {
@@ -611,6 +613,7 @@ export default function InvestmentStage({ investments }) {
         const quote = await fetchStockQuote(quoteSymbolForProduct(p))
         const currency = normalizeCurrencyCode(quote.currency || p.currency || p.quoteCurrency, 'KRW')
         if (currency === 'KRW') return { p, quote, currency }
+        if (isQuoteFresh(p.exchangeRateTime, FX_QUOTE_REFRESH_MS)) return { p, quote, currency }
 
         try {
           const exchangeQuote = await fetchExchangeRate(currency, 'KRW')
@@ -640,6 +643,8 @@ export default function InvestmentStage({ investments }) {
         [p.id]: quote
           ? usedPrevious
             ? { state: 'idle', text: '이전값' }
+            : quote.cached || exchangeQuote?.cached
+            ? { state: 'ok', text: '최근' }
             : exchangeError
             ? { state: 'error', text: '환율 실패' }
             : { state: 'ok', text: '갱신됨' }
@@ -654,9 +659,12 @@ export default function InvestmentStage({ investments }) {
         currency,
         quoteSymbol: quote.symbol || quoteSymbolForProduct(p),
         quoteCurrency: currency || quote.currency,
-        quoteTime: quote.time,
+        quoteTime: quote.fetchedAt || quote.cachedAt || quote.time,
         ...(exchangeQuote
-          ? { exchangeRate: exchangeQuote.price, exchangeRateTime: exchangeQuote.time }
+          ? {
+              exchangeRate: exchangeQuote.price,
+              exchangeRateTime: exchangeQuote.fetchedAt || exchangeQuote.cachedAt || exchangeQuote.time,
+            }
           : {}),
       })
     }

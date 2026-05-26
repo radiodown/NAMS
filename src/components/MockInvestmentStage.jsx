@@ -25,7 +25,8 @@ import {
 } from '../lib/mockInvestment'
 import NumberInput from './NumberInput'
 
-const QUOTE_REFRESH_MS = 10 * 60 * 1000
+const STOCK_QUOTE_REFRESH_MS = 60 * 1000
+const FX_QUOTE_REFRESH_MS = 60 * 60 * 1000
 const QUOTE_STAGGER_MS = 1400
 const HISTORY_RANGE = '1y'
 const HISTORY_INTERVAL = '1d'
@@ -116,7 +117,7 @@ export default function MockInvestmentStage({ mockInvest }) {
     }
 
     fetchQuotes()
-    const timer = window.setInterval(fetchQuotes, QUOTE_REFRESH_MS)
+    const timer = window.setInterval(fetchQuotes, STOCK_QUOTE_REFRESH_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)
@@ -159,7 +160,7 @@ export default function MockInvestmentStage({ mockInvest }) {
     }
 
     fetchFx()
-    const timer = window.setInterval(fetchFx, QUOTE_REFRESH_MS)
+    const timer = window.setInterval(fetchFx, FX_QUOTE_REFRESH_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)

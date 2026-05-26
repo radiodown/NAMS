@@ -25,6 +25,8 @@ export function normalizeExchangeSymbol(base, target = 'KRW') {
 const QUOTE_TIMEOUT_MS = 12000
 const QUOTE_CACHE_PREFIX = 'nams.quote.'
 const QUOTE_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7
+const STOCK_QUOTE_CACHE_MS = 1000 * 60
+const FX_QUOTE_CACHE_MS = 1000 * 60 * 60
 const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
 const NAVER_ETF_PAGE_SIZE = 100
 const NAVER_ETF_MAX_PAGES = 15
@@ -169,6 +171,7 @@ function normalizeCachedQuote(value, symbol) {
   if (!quote || !Number.isFinite(price) || price <= 0) return null
   const cachedAt = Date.parse(quote.cachedAt || quote.time)
   if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > QUOTE_CACHE_MAX_AGE_MS) return null
+  const cachedAtIso = new Date(cachedAt).toISOString()
   return {
     symbol: quote.symbol || normalizeStockSymbol(symbol),
     price,
@@ -177,22 +180,26 @@ function normalizeCachedQuote(value, symbol) {
     changePercent: Number(quote.changePercent) || 0,
     currency: quote.currency || guessStockCurrency(quote.symbol || symbol),
     time: quote.time || quote.cachedAt,
+    fetchedAt: quote.fetchedAt || cachedAtIso,
+    cachedAt: cachedAtIso,
   }
 }
 
-function readCachedQuote(symbol) {
+function readCachedQuote(symbol, maxAgeMs = QUOTE_CACHE_MAX_AGE_MS) {
   const key = quoteCacheKey(symbol)
   if (!key) return null
 
   const memoryQuote = normalizeCachedQuote(quoteMemoryCache.get(key), symbol)
-  if (memoryQuote) return { ...memoryQuote, cached: true, stale: true }
+  if (memoryQuote) {
+    return { ...memoryQuote, cached: true, stale: Date.now() - Date.parse(memoryQuote.cachedAt) > maxAgeMs }
+  }
 
   if (typeof window === 'undefined' || !window.localStorage) return null
   try {
     const storageQuote = normalizeCachedQuote(JSON.parse(window.localStorage.getItem(key) || 'null'), symbol)
     if (!storageQuote) return null
     quoteMemoryCache.set(key, storageQuote)
-    return { ...storageQuote, cached: true, stale: true }
+    return { ...storageQuote, cached: true, stale: Date.now() - Date.parse(storageQuote.cachedAt) > maxAgeMs }
   } catch {
     return null
   }
@@ -209,6 +216,7 @@ function writeCachedQuote(symbol, quote) {
     changePercent: quote.changePercent || 0,
     currency: quote.currency || guessStockCurrency(quote.symbol || symbol),
     time: quote.time || new Date().toISOString(),
+    fetchedAt: new Date().toISOString(),
     cachedAt: new Date().toISOString(),
   }
   quoteMemoryCache.set(key, cached)
@@ -219,14 +227,18 @@ function writeCachedQuote(symbol, quote) {
       // Storage may be blocked; in-memory cache still helps during this session.
     }
   }
-  return { ...quote, cached: false, stale: false }
+  return { ...quote, fetchedAt: cached.fetchedAt, cachedAt: cached.cachedAt, cached: false, stale: false }
 }
 
-async function withCachedQuoteFallback(symbol, fetcher) {
+async function withCachedQuoteFallback(symbol, fetcher, options = {}) {
+  const maxAgeMs = options.maxAgeMs ?? QUOTE_CACHE_MAX_AGE_MS
+  const freshCached = readCachedQuote(symbol, maxAgeMs)
+  if (freshCached && !freshCached.stale) return freshCached
+
   try {
     return writeCachedQuote(symbol, await fetcher())
   } catch (error) {
-    const cached = readCachedQuote(symbol)
+    const cached = readCachedQuote(symbol, maxAgeMs)
     if (cached) return { ...cached, errorMessage: error?.message || '시세 조회 실패' }
     throw error
   }
@@ -586,7 +598,7 @@ export async function fetchStockQuote(input) {
       }
     }
     return fetchYahooQuote(symbol, '종목 코드가 없습니다.')
-  })
+  }, { maxAgeMs: STOCK_QUOTE_CACHE_MS })
 }
 
 export async function fetchStockHistory(input, options = {}) {
@@ -614,5 +626,5 @@ export async function fetchExchangeRate(base, target = 'KRW') {
     } catch {
       return fetchFrankfurterRate(base, target)
     }
-  })
+  }, { maxAgeMs: FX_QUOTE_CACHE_MS })
 }
