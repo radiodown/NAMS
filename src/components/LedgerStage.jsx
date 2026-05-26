@@ -97,7 +97,9 @@ export default function LedgerStage({
   const [editingId, setEditingId] = useState(null)
   const [categoryForm, setCategoryForm] = useState(blankCategoryForm)
   const [categoryOpen, setCategoryOpen] = useState(false)
-  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [paymentEditOpen, setPaymentEditOpen] = useState(false)
+  const [paymentListOpen, setPaymentListOpen] = useState(false)
+  const [pendingPaymentEditId, setPendingPaymentEditId] = useState('')
   const [methodChange, setMethodChange] = useState({ from: '', to: '' })
   const [mobileEntryOpen, setMobileEntryOpen] = useState(false)
   const [mobileManualOpen, setMobileManualOpen] = useState(false)
@@ -883,9 +885,14 @@ export default function LedgerStage({
               카테고리 관리
             </button>
             {type === '지출' && (
-              <button className="btn btn-sm" onClick={() => setPaymentOpen(true)}>
-                결제수단 관리
-              </button>
+              <>
+                <button className="btn btn-sm" onClick={() => setPaymentEditOpen(true)}>
+                  결제수단 추가/변경
+                </button>
+                <button className="btn btn-sm" onClick={() => setPaymentListOpen(true)}>
+                  결제수단 목록
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -921,6 +928,29 @@ export default function LedgerStage({
                 ×
               </button>
             </div>
+            <div className="mobile-entry-tools mobile-entry-tools-top">
+              <button type="button" className="btn btn-sm" onClick={() => setCategoryOpen(true)}>
+                카테고리 관리
+              </button>
+              {type === '지출' && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setPaymentEditOpen(true)}
+                  >
+                    결제수단 추가/변경
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setPaymentListOpen(true)}
+                  >
+                    결제수단 목록
+                  </button>
+                </>
+              )}
+            </div>
             <div className="mobile-entry-section mobile-entry-quick-section">
               <div className="mobile-entry-section-head">
                 <h3>빠른 추가</h3>
@@ -939,21 +969,7 @@ export default function LedgerStage({
                   ▶
                 </span>
               </button>
-              {mobileManualOpen && (
-                <>
-                  <div className="mobile-entry-tools">
-                    <button type="button" className="btn btn-sm" onClick={() => setCategoryOpen(true)}>
-                      카테고리 추가/관리
-                    </button>
-                    {type === '지출' && (
-                      <button type="button" className="btn btn-sm" onClick={() => setPaymentOpen(true)}>
-                        결제수단 추가/관리
-                      </button>
-                    )}
-                  </div>
-                  {renderEntryForm('mobile-entry-form')}
-                </>
-              )}
+              {mobileManualOpen && renderEntryForm('mobile-entry-form')}
             </div>
           </div>
         </div>
@@ -1023,35 +1039,32 @@ export default function LedgerStage({
         </div>
       )}
 
-      {paymentOpen && (
-        <div className="fixed-modal-backdrop" onClick={() => setPaymentOpen(false)}>
+      {paymentEditOpen && (
+        <div
+          className="fixed-modal-backdrop"
+          onClick={() => {
+            setPaymentEditOpen(false)
+            setPendingPaymentEditId('')
+          }}
+        >
           <div
             className="fixed-modal payment-modal"
             role="dialog"
             aria-modal="true"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="fixed-modal-head">
-              <h3>결제수단 관리</h3>
-              <button
-                className="fixed-modal-close"
-                onClick={() => setPaymentOpen(false)}
-                aria-label="닫기"
-              >
-                ×
-              </button>
-            </div>
             <PaymentMethodManager
+              view="form"
               methods={paymentMethods}
               addMethod={addPaymentMethod}
               updateMethod={updatePaymentMethod}
-              removeMethod={removePaymentMethod}
+              initialEditId={pendingPaymentEditId}
             />
             {type === '지출' && replacePaymentMethod && paymentMethods.length >= 2 && (
-              <section className="payment-replace-section" aria-label="결제수단 변경">
+              <section className="payment-replace-section" aria-label="결제수단 일괄 변경">
                 <header className="payment-section-head">
                   <div className="payment-section-title">
-                    <span className="payment-section-badge replace">변경</span>
+                    <span className="payment-section-badge replace">일괄</span>
                     <h4>기존 지출의 결제수단 일괄 교체</h4>
                   </div>
                   <p className="payment-section-hint">
@@ -1098,6 +1111,29 @@ export default function LedgerStage({
                 </form>
               </section>
             )}
+          </div>
+        </div>
+      )}
+
+      {paymentListOpen && (
+        <div className="fixed-modal-backdrop" onClick={() => setPaymentListOpen(false)}>
+          <div
+            className="fixed-modal payment-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PaymentMethodManager
+              view="list"
+              methods={paymentMethods}
+              updateMethod={updatePaymentMethod}
+              removeMethod={removePaymentMethod}
+              onEditRequest={(method) => {
+                setPaymentListOpen(false)
+                setPendingPaymentEditId(method.id)
+                setPaymentEditOpen(true)
+              }}
+            />
           </div>
         </div>
       )}

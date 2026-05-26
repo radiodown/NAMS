@@ -57,15 +57,20 @@ export default function PaymentMethodManager({
   addMethod,
   updateMethod,
   removeMethod,
-  showMethods = true,
+  view = 'form',
+  initialEditId = '',
+  onEditRequest,
 }) {
   const [form, setForm] = useState(blankForm)
   const [cardQuery, setCardQuery] = useState('')
   const [cardSearchOpen, setCardSearchOpen] = useState(false)
   const [manualOpen, setManualOpen] = useState(false)
+  const [listQuery, setListQuery] = useState('')
   const editing = Boolean(form.id)
   const canEdit = Boolean(updateMethod)
   const canRemove = Boolean(removeMethod)
+  const showForm = view === 'form'
+  const showList = view === 'list'
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
   const cardProducts = CARD_PRODUCT_CATALOG
   const cardProductById = useMemo(
@@ -84,6 +89,13 @@ export default function PaymentMethodManager({
   useEffect(() => {
     if (editing) setManualOpen(true)
   }, [editing])
+
+  useEffect(() => {
+    if (!showForm || !initialEditId) return
+    const target = methods.find((m) => m.id === initialEditId)
+    if (target) startEdit(target)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEditId, showForm])
 
   function buildPayload() {
     return {
@@ -182,8 +194,34 @@ export default function PaymentMethodManager({
     setCardSearchOpen(false)
   }
 
+  const filteredMethods = useMemo(() => {
+    const query = listQuery.trim().toLowerCase()
+    if (!query) return methods
+    return methods.filter((method) => {
+      const product = cardProductById.get(method.cardProductId)
+      return [
+        method.name,
+        method.kind,
+        methodProductLabel(method, product),
+        method.annualFee ? `연회비 ${method.annualFee}` : '',
+        method.monthlyLimit ? `한도 ${method.monthlyLimit}` : '',
+        method.monthlyTarget ? `실적 ${method.monthlyTarget}` : '',
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+  }, [cardProductById, listQuery, methods])
+
   return (
     <div className="payment-manager">
+      {showForm && (
+      <div className="payment-group">
+        {editing && (
+          <div className="payment-group-status">
+            <span className="payment-group-badge editing">수정 중</span>
+          </div>
+        )}
       <form className="payment-form" onSubmit={submit}>
         <section className="payment-section payment-section-auto" aria-label="자동 등록">
           <header className="payment-section-head">
@@ -370,41 +408,91 @@ export default function PaymentMethodManager({
           )}
         </section>
       </form>
+      </div>
+      )}
 
-      {showMethods && (
-        <div className="payment-method-list">
-          {methods.map((method) => (
-            <div className="payment-method-row" key={method.id}>
-              <div>
-                <b>{method.name}</b>
-                <span>
-                  {method.kind}
-                  {methodProductLabel(method, cardProductById.get(method.cardProductId)) ? ` · ${methodProductLabel(method, cardProductById.get(method.cardProductId))}` : ''}
-                  {method.annualFee ? ` · 연회비 ${formatKRW(method.annualFee)}` : ''}
-                  {method.monthlyLimit ? ` · 한도 ${formatKRW(method.monthlyLimit)}` : ''}
-                  {method.monthlyTarget ? ` · 실적 ${formatKRW(method.monthlyTarget)}` : ''}
-                </span>
-              </div>
-              {(canEdit || canRemove) && (
-                <div className="payment-method-actions">
-                  {canEdit && (
-                    <button className="icon-btn" onClick={() => startEdit(method)} aria-label={`${method.name} 수정`}>
-                      ✎
-                    </button>
-                  )}
-                  {canRemove && (
-                    <button
-                      className="icon-btn danger"
-                      onClick={() => deleteMethod(method)}
-                      aria-label={`${method.name} 삭제`}
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
+      {showList && (
+        <div className="payment-group">
+          {methods.length > 5 && (
+            <div className="payment-list-search">
+              <input
+                type="search"
+                placeholder="이름, 종류, 카드 상품으로 필터"
+                value={listQuery}
+                onChange={(e) => setListQuery(e.target.value)}
+              />
+              {listQuery && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setListQuery('')}
+                >
+                  초기화
+                </button>
               )}
             </div>
-          ))}
+          )}
+          {methods.length === 0 ? (
+            <div className="payment-list-empty">아직 등록된 결제수단이 없습니다.</div>
+          ) : filteredMethods.length === 0 ? (
+            <div className="payment-list-empty">조건에 맞는 결제수단이 없습니다.</div>
+          ) : (
+            <ul className="payment-method-list compact">
+              {filteredMethods.map((method) => {
+                const product = cardProductById.get(method.cardProductId)
+                const productLabelText = methodProductLabel(method, product)
+                const isEditing = editing && form.id === method.id
+                const metaParts = [
+                  productLabelText,
+                  method.annualFee ? `연회비 ${formatKRW(method.annualFee)}` : '',
+                  method.monthlyLimit ? `한도 ${formatKRW(method.monthlyLimit)}` : '',
+                  method.monthlyTarget ? `실적 ${formatKRW(method.monthlyTarget)}` : '',
+                ].filter(Boolean)
+                return (
+                  <li
+                    className={`payment-method-row compact${isEditing ? ' editing' : ''}`}
+                    key={method.id}
+                  >
+                    <div className="payment-method-row-main">
+                      <b>{method.name}</b>
+                      <span className="payment-method-row-kind">{method.kind}</span>
+                      {metaParts.length > 0 && (
+                        <small className="payment-method-row-meta">
+                          {metaParts.join(' · ')}
+                        </small>
+                      )}
+                    </div>
+                    {(canEdit || canRemove) && (
+                      <div className="payment-method-actions">
+                        {canEdit && (
+                          <button
+                            className="icon-btn"
+                            onClick={() =>
+                              onEditRequest ? onEditRequest(method) : startEdit(method)
+                            }
+                            aria-label={`${method.name} 수정`}
+                            title="수정"
+                          >
+                            ✎
+                          </button>
+                        )}
+                        {canRemove && (
+                          <button
+                            className="icon-btn danger"
+                            onClick={() => deleteMethod(method)}
+                            aria-label={`${method.name} 삭제`}
+                            title="삭제"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </div>
       )}
     </div>

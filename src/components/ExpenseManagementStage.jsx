@@ -38,7 +38,9 @@ export default function ExpenseManagementStage({
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
   const [historySearch, setHistorySearch] = useState('')
-  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [paymentEditOpen, setPaymentEditOpen] = useState(false)
+  const [paymentListOpen, setPaymentListOpen] = useState(false)
+  const [pendingEditId, setPendingEditId] = useState('')
   const methods = paymentMethods.items
   const periodLabel = periodMode === 'year' ? `${year}년` : month
   const limitMultiplier = periodMode === 'year' ? 12 : 1
@@ -169,13 +171,22 @@ export default function ExpenseManagementStage({
           <p>결제수단과 카테고리 기준으로 선택한 기간의 지출 흐름을 봅니다.</p>
         </div>
         <div className="management-head-actions">
-          <button
-            type="button"
-            className="btn btn-sm management-payment-btn"
-            onClick={() => setPaymentOpen(true)}
-          >
-            결제수단 관리
-          </button>
+          <div className="management-payment-actions">
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setPaymentEditOpen(true)}
+            >
+              결제수단 추가/변경
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setPaymentListOpen(true)}
+            >
+              결제수단 목록
+            </button>
+          </div>
           <div className="month-picker">
             <span>분석 기간</span>
             <div className="period-toggle" role="group" aria-label="분석 기간 단위">
@@ -287,33 +298,50 @@ export default function ExpenseManagementStage({
         </div>
       </div>
 
-      {paymentOpen && (
-        <div className="fixed-modal-backdrop" onClick={() => setPaymentOpen(false)}>
+      {paymentEditOpen && (
+        <div
+          className="fixed-modal-backdrop"
+          onClick={() => {
+            setPaymentEditOpen(false)
+            setPendingEditId('')
+          }}
+        >
           <div
             className="fixed-modal payment-modal"
             role="dialog"
             aria-modal="true"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="fixed-modal-head">
-              <h3>결제수단 관리</h3>
-              <button
-                className="fixed-modal-close"
-                onClick={() => setPaymentOpen(false)}
-                aria-label="닫기"
-              >
-                ×
-              </button>
-            </div>
             <PaymentMethodManager
+              view="form"
               methods={methods}
               addMethod={paymentMethods.addItem}
               updateMethod={updatePaymentMethod}
-              removeMethod={paymentMethods.removeItem}
+              initialEditId={pendingEditId}
             />
-            <p className="payment-modal-note">
-              기존 지출의 결제수단을 다른 수단으로 옮기려면 지출 탭의 “결제수단 관리”에서 변경하세요.
-            </p>
+          </div>
+        </div>
+      )}
+
+      {paymentListOpen && (
+        <div className="fixed-modal-backdrop" onClick={() => setPaymentListOpen(false)}>
+          <div
+            className="fixed-modal payment-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <PaymentMethodManager
+              view="list"
+              methods={methods}
+              updateMethod={updatePaymentMethod}
+              removeMethod={paymentMethods.removeItem}
+              onEditRequest={(method) => {
+                setPaymentListOpen(false)
+                setPendingEditId(method.id)
+                setPaymentEditOpen(true)
+              }}
+            />
           </div>
         </div>
       )}
