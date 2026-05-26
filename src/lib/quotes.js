@@ -23,9 +23,12 @@ export function normalizeExchangeSymbol(base, target = 'KRW') {
 }
 
 const QUOTE_TIMEOUT_MS = 12000
+const QUOTE_CACHE_PREFIX = 'nams.quote.'
+const QUOTE_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7
 const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
 const NAVER_ETF_PAGE_SIZE = 100
 const NAVER_ETF_MAX_PAGES = 15
+const quoteMemoryCache = new Map()
 const STOCK_SEARCH_PRESETS = [
   { symbol: 'BRK-B', name: 'Berkshire Hathaway Inc. Class B', keywords: ['berkshire', 'berkshire hathaway', 'brk.b', 'brkb', '워런버핏', '버크셔'], currency: 'USD', exchange: 'NYSE' },
   { symbol: '005930.KS', name: '삼성전자', keywords: ['samsung', 'samsung electronics'], currency: 'KRW', exchange: 'KOSPI' },
@@ -83,13 +86,20 @@ function yahooSearchPath(query, options = {}) {
 }
 
 function yahooChartUrl(symbol, options) {
+  return yahooChartUrls(symbol, options)[0]
+}
+
+function yahooChartUrls(symbol, options) {
   const path = yahooChartPath(symbol, options)
-  if (isLocalDev()) return `/api/yahoo${path}`
+  if (isLocalDev()) return [`/api/yahoo${path}`]
 
   // GitHub Pages has no server-side proxy, and Yahoo's chart endpoint is not
   // browser-CORS friendly. Jina Reader gives static deployments a CORS-enabled
   // read-only pass-through while keeping the same Yahoo payload shape.
-  return readerUrl(`http://query1.finance.yahoo.com${path}`)
+  return [
+    readerUrl(`http://query1.finance.yahoo.com${path}`),
+    readerUrl(`http://query2.finance.yahoo.com${path}`),
+  ]
 }
 
 function yahooSearchUrl(query, options) {
@@ -148,6 +158,80 @@ async function fetchJson(url, options = {}) {
   return extractJson(await fetchText(url, options))
 }
 
+function quoteCacheKey(symbol) {
+  const normalized = normalizeStockSymbol(symbol)
+  return normalized ? `${QUOTE_CACHE_PREFIX}${normalized}` : ''
+}
+
+function normalizeCachedQuote(value, symbol) {
+  const quote = value && typeof value === 'object' ? value : null
+  const price = Number(quote?.price)
+  if (!quote || !Number.isFinite(price) || price <= 0) return null
+  const cachedAt = Date.parse(quote.cachedAt || quote.time)
+  if (!Number.isFinite(cachedAt) || Date.now() - cachedAt > QUOTE_CACHE_MAX_AGE_MS) return null
+  return {
+    symbol: quote.symbol || normalizeStockSymbol(symbol),
+    price,
+    previousClose: Number(quote.previousClose) || 0,
+    change: Number(quote.change) || 0,
+    changePercent: Number(quote.changePercent) || 0,
+    currency: quote.currency || guessStockCurrency(quote.symbol || symbol),
+    time: quote.time || quote.cachedAt,
+  }
+}
+
+function readCachedQuote(symbol) {
+  const key = quoteCacheKey(symbol)
+  if (!key) return null
+
+  const memoryQuote = normalizeCachedQuote(quoteMemoryCache.get(key), symbol)
+  if (memoryQuote) return { ...memoryQuote, cached: true, stale: true }
+
+  if (typeof window === 'undefined' || !window.localStorage) return null
+  try {
+    const storageQuote = normalizeCachedQuote(JSON.parse(window.localStorage.getItem(key) || 'null'), symbol)
+    if (!storageQuote) return null
+    quoteMemoryCache.set(key, storageQuote)
+    return { ...storageQuote, cached: true, stale: true }
+  } catch {
+    return null
+  }
+}
+
+function writeCachedQuote(symbol, quote) {
+  const key = quoteCacheKey(symbol)
+  if (!key || !quote?.price) return quote
+  const cached = {
+    symbol: quote.symbol || normalizeStockSymbol(symbol),
+    price: quote.price,
+    previousClose: quote.previousClose || 0,
+    change: quote.change || 0,
+    changePercent: quote.changePercent || 0,
+    currency: quote.currency || guessStockCurrency(quote.symbol || symbol),
+    time: quote.time || new Date().toISOString(),
+    cachedAt: new Date().toISOString(),
+  }
+  quoteMemoryCache.set(key, cached)
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(cached))
+    } catch {
+      // Storage may be blocked; in-memory cache still helps during this session.
+    }
+  }
+  return { ...quote, cached: false, stale: false }
+}
+
+async function withCachedQuoteFallback(symbol, fetcher) {
+  try {
+    return writeCachedQuote(symbol, await fetcher())
+  } catch (error) {
+    const cached = readCachedQuote(symbol)
+    if (cached) return { ...cached, errorMessage: error?.message || '시세 조회 실패' }
+    throw error
+  }
+}
+
 function quoteFromYahooData(data, fallbackSymbol) {
   if (data?.code || data?.status) {
     throw new Error(data?.readableMessage || data?.message || '시세 조회 실패')
@@ -180,7 +264,15 @@ function quoteFromYahooData(data, fallbackSymbol) {
 async function fetchYahooQuote(symbol, emptyMessage) {
   if (!symbol) throw new Error(emptyMessage)
 
-  return quoteFromYahooData(await fetchJson(yahooChartUrl(symbol)), symbol)
+  let lastError = null
+  for (const url of yahooChartUrls(symbol)) {
+    try {
+      return quoteFromYahooData(await fetchJson(url), symbol)
+    } catch (error) {
+      lastError = error
+    }
+  }
+  throw lastError || new Error('시세 조회 실패')
 }
 
 function compactSearchText(value) {
@@ -281,8 +373,10 @@ function quoteFromNaverData(data, fallbackSymbol) {
   const change = parseMarketNumber(data?.compareToPreviousClosePriceRaw ?? data?.compareToPreviousClosePrice)
   const previousClose = price - change
   const changePercent = parseMarketNumber(data?.fluctuationsRatioRaw ?? data?.fluctuationsRatio)
+  const fallback = normalizeStockSymbol(fallbackSymbol)
+  const symbol = normalizeStockSymbol(data?.reutersCode || data?.itemCode || fallback)
   return {
-    symbol: normalizeStockSymbol(data?.itemCode || data?.reutersCode || fallbackSymbol),
+    symbol: symbol.endsWith('.KS') && fallback.endsWith('.KQ') ? fallback : symbol,
     price,
     previousClose: previousClose > 0 ? previousClose : 0,
     change,
@@ -477,12 +571,22 @@ async function fetchFrankfurterRate(base, target) {
 
 export async function fetchStockQuote(input) {
   const symbol = normalizeStockSymbol(input)
-  try {
-    return await fetchYahooQuote(symbol, '종목 코드가 없습니다.')
-  } catch (error) {
-    if (koreanStockCode(symbol)) return fetchNaverQuote(symbol)
-    throw error
-  }
+  if (!symbol) throw new Error('종목 코드가 없습니다.')
+
+  return withCachedQuoteFallback(symbol, async () => {
+    if (koreanStockCode(symbol)) {
+      try {
+        return await fetchNaverQuote(symbol)
+      } catch (naverError) {
+        try {
+          return await fetchYahooQuote(symbol, '종목 코드가 없습니다.')
+        } catch {
+          throw naverError
+        }
+      }
+    }
+    return fetchYahooQuote(symbol, '종목 코드가 없습니다.')
+  })
 }
 
 export async function fetchStockHistory(input, options = {}) {
@@ -502,9 +606,13 @@ export async function fetchStockHistory(input, options = {}) {
 
 export async function fetchExchangeRate(base, target = 'KRW') {
   const symbol = normalizeExchangeSymbol(base, target)
-  try {
-    return await fetchYahooQuote(symbol, '통화 코드가 없습니다.')
-  } catch (error) {
-    return fetchFrankfurterRate(base, target)
-  }
+  if (!symbol) throw new Error('통화 코드가 없습니다.')
+
+  return withCachedQuoteFallback(symbol, async () => {
+    try {
+      return await fetchYahooQuote(symbol, '통화 코드가 없습니다.')
+    } catch {
+      return fetchFrankfurterRate(base, target)
+    }
+  })
 }

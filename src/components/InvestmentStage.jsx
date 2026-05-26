@@ -56,6 +56,8 @@ const STALE_QUOTE_MS = 1000 * 60 * 60 * 72
 const QUOTE_REFRESH_MS = 1000 * 60 * 10
 const QUOTE_STAGGER_MS = 1400
 const QUOTE_FRESH_MS = 1000 * 60 * 10
+const QUOTE_RETRY_BACKOFF_MS = 1000 * 60 * 20
+const QUOTE_EMPTY_RETRY_BACKOFF_MS = 1000 * 60 * 5
 const BITCOIN_SYMBOL = 'BTC-KRW'
 const ASSET_TYPE_OPTIONS = ['현금성자산', '금', '외화', '채권', '부동산', '기타']
 const STABLE_ASSET_KINDS = new Set(['예금', '적금', '자산'])
@@ -445,6 +447,7 @@ export default function InvestmentStage({ investments }) {
   const [stockSearchOpen, setStockSearchOpen] = useState(false)
   const [stockSearchLockedQuery, setStockSearchLockedQuery] = useState('')
   const stockSymbolLookupRef = useRef('')
+  const quoteFailuresRef = useRef({})
 
   // rawItems feeds summarize/exchangeRateMap so legacy 환율 widgets keep
   // providing FX rates for stock conversion. 환율 items contribute 0 to totals
@@ -584,6 +587,25 @@ export default function InvestmentStage({ investments }) {
 
     let cancelled = false
 
+    function hasPreviousQuote(p) {
+      return Number(p.currentPrice) > 0
+    }
+
+    function hasPreviousFx(p, currency) {
+      return currency === 'KRW' || Number(p.exchangeRate) > 0
+    }
+
+    function quoteFailureKey(p) {
+      return `${quoteSymbolForProduct(p)}:${p.currency || p.quoteCurrency || ''}`
+    }
+
+    function canRetryQuote(p) {
+      const failure = quoteFailuresRef.current[p.id]
+      if (!failure || failure.key !== quoteFailureKey(p)) return true
+      const backoff = hasPreviousQuote(p) ? QUOTE_RETRY_BACKOFF_MS : QUOTE_EMPTY_RETRY_BACKOFF_MS
+      return Date.now() - failure.time > backoff
+    }
+
     async function fetchQuoteItem(p) {
       try {
         const quote = await fetchStockQuote(quoteSymbolForProduct(p))
@@ -602,13 +624,28 @@ export default function InvestmentStage({ investments }) {
     }
 
     function applyQuoteResult({ p, quote, currency, exchangeQuote, exchangeError, error }) {
+      const previousQuote = hasPreviousQuote(p)
+      const previousFx = hasPreviousFx(p, currency)
+      const usedPrevious = quote?.stale || exchangeQuote?.stale || (exchangeError && previousFx)
+      const failed = !quote || quote?.stale || exchangeError
+
+      if (failed) {
+        quoteFailuresRef.current[p.id] = { key: quoteFailureKey(p), time: Date.now() }
+      } else {
+        delete quoteFailuresRef.current[p.id]
+      }
+
       setQuoteStatus((prev) => ({
         ...prev,
         [p.id]: quote
-          ? exchangeError
+          ? usedPrevious
+            ? { state: 'idle', text: '이전값' }
+            : exchangeError
             ? { state: 'error', text: '환율 실패' }
             : { state: 'ok', text: '갱신됨' }
-          : { state: 'error', text: error?.message || '조회 실패' },
+          : previousQuote
+            ? { state: 'idle', text: '이전값' }
+            : { state: 'error', text: error?.message || '조회 실패' },
       }))
 
       if (!quote) return
@@ -629,11 +666,12 @@ export default function InvestmentStage({ investments }) {
         const next = { ...prev }
         quoteItems.forEach((p) => {
           if (!needsQuoteRefresh(p)) next[p.id] = { state: 'ok', text: '최근' }
+          else if (!canRetryQuote(p) && hasPreviousQuote(p)) next[p.id] = { state: 'idle', text: '이전값' }
         })
         return next
       })
 
-      const targets = quoteItems.filter(needsQuoteRefresh)
+      const targets = quoteItems.filter((p) => needsQuoteRefresh(p) && canRetryQuote(p))
       for (let index = 0; index < targets.length; index += 1) {
         const p = targets[index]
         if (cancelled) return
@@ -878,18 +916,39 @@ export default function InvestmentStage({ investments }) {
   function openAdd() {
     setEditingId(null)
     setForm(blankForm(form.kind))
+    setStockSearch({ state: 'idle', query: '', items: [], error: '' })
+    setStockSearchLockedQuery('')
+    stockSymbolLookupRef.current = ''
+    setStockSearchOpen(false)
     setFormOpen(true)
   }
 
   function startEdit(p) {
+    const nextForm = formFromProduct(p)
     setEditingId(p.id)
-    setForm(formFromProduct(p))
+    setForm(nextForm)
+    if (p.kind === '주식') {
+      const query = nextForm.name.trim()
+      setStockSearch({ state: 'idle', query, items: [], error: '' })
+      setStockSearchLockedQuery(query)
+      stockSymbolLookupRef.current = normalizeStockSymbol(nextForm.quoteSymbol)
+      setStockSearchOpen(false)
+    } else {
+      setStockSearch({ state: 'idle', query: '', items: [], error: '' })
+      setStockSearchLockedQuery('')
+      stockSymbolLookupRef.current = ''
+      setStockSearchOpen(false)
+    }
     setFormOpen(true)
   }
 
   function cancelEdit() {
     setEditingId(null)
     setForm(blankForm(form.kind))
+    setStockSearch({ state: 'idle', query: '', items: [], error: '' })
+    setStockSearchLockedQuery('')
+    stockSymbolLookupRef.current = ''
+    setStockSearchOpen(false)
     setFormOpen(false)
   }
 
@@ -1132,7 +1191,13 @@ export default function InvestmentStage({ investments }) {
               placeholder={namePlaceholder}
               value={form.name}
               onFocus={() => {
-                if (form.kind === '주식' && stockSearch.items.length > 0) setStockSearchOpen(true)
+                if (
+                  form.kind === '주식' &&
+                  stockSearch.items.length > 0 &&
+                  form.name.trim() !== stockSearchLockedQuery
+                ) {
+                  setStockSearchOpen(true)
+                }
               }}
               onChange={(e) =>
                 form.kind === '주식' ? setStockName(e.target.value) : set('name', e.target.value)
