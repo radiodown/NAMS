@@ -277,6 +277,17 @@ button {
 /* ---------- stage manager ---------- */
 .stage-modal {
   width: min(460px, 100%);
+  max-width: calc(100vw - 40px);
+  overflow: hidden;
+  overflow-x: clip;
+}
+
+.stage-backdrop {
+  overflow: hidden;
+}
+
+.stage-modal * {
+  min-width: 0;
 }
 
 .settings-modal {
@@ -367,9 +378,22 @@ button {
 }
 
 .stage-manager-list {
+  width: 100%;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: min(60dvh, 440px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 2px;
+  overscroll-behavior: contain;
+}
+
+.stage-modal::-webkit-scrollbar:horizontal,
+.stage-manager-list::-webkit-scrollbar:horizontal {
+  display: none;
+  height: 0;
 }
 
 .stage-manager-list.dragging {
@@ -377,10 +401,14 @@ button {
 }
 
 .stage-manager-row {
+  width: 100%;
+  max-width: 100%;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+  overflow: hidden;
   padding: 9px;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -448,6 +476,10 @@ button {
 }
 
 .stage-manager-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 14px;
   font-weight: 800;
   color: var(--text);
@@ -494,6 +526,11 @@ button {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
@@ -682,6 +719,11 @@ button {
 
 .entry-form.expense-form {
   grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
+}
+
+.mobile-entry-fab,
+.mobile-entry-backdrop {
+  display: none;
 }
 
 .input-assist-panel {
@@ -1113,6 +1155,11 @@ button {
   color: var(--accent, #2563eb);
 }
 
+.calendar-nav:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
 .calendar-weekdays,
 .calendar-grid {
   display: grid;
@@ -1152,6 +1199,16 @@ button {
 .calendar-cell:hover {
   background: var(--surface-2);
   color: var(--accent, #2563eb);
+}
+
+.calendar-cell:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.calendar-cell:disabled:hover {
+  background: transparent;
+  color: var(--text);
 }
 
 .calendar-cell.outside {
@@ -1373,6 +1430,72 @@ button {
 
 .ledger-list-head .section-title {
   margin: 0;
+}
+
+.ledger-list-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.ledger-filter-toggle {
+  display: none;
+}
+
+.ledger-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 0.8fr) minmax(150px, 1fr) minmax(120px, auto);
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.ledger-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.ledger-filter-field > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.ledger-filter-field input {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.ledger-filter-field input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.ledger-filter-actions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.ledger-filter-actions .btn {
+  height: 34px;
+  white-space: nowrap;
+}
+
+.management-history-search {
+  grid-template-columns: minmax(180px, 1fr) auto;
 }
 
 .table-wrap {
@@ -1901,6 +2024,13 @@ td.memo {
   flex-direction: column;
   align-items: flex-end;
   line-height: 1.2;
+}
+
+.fixed-summary-main {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .fixed-summary-total {
@@ -3413,6 +3543,212 @@ td.memo {
 
 /* ---------- responsive ---------- */
 @media (max-width: 760px) {
+  .ledger-entry-card {
+    display: none;
+  }
+
+  .mobile-entry-fab {
+    position: fixed;
+    right: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    z-index: 40;
+    width: 56px;
+    height: 56px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    box-shadow: 0 14px 34px color-mix(in srgb, var(--accent) 34%, rgba(15, 23, 42, 0.22));
+    font-size: 34px;
+    font-weight: 500;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .mobile-entry-fab:active {
+    transform: translateY(1px) scale(0.98);
+  }
+
+  .mobile-entry-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 10px;
+    background: rgba(15, 23, 42, 0.38);
+  }
+
+  .mobile-entry-sheet {
+    width: min(520px, 100%);
+    max-height: min(88dvh, 760px);
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 18px 18px 12px 12px;
+    background: var(--surface);
+    box-shadow: 0 -16px 48px rgba(15, 23, 42, 0.24);
+    padding: 14px;
+  }
+
+  .mobile-entry-head {
+    position: sticky;
+    top: -14px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: -14px -14px 12px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .mobile-entry-head h2 {
+    margin: 0;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 900;
+  }
+
+  .mobile-entry-close {
+    width: 34px;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 21px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .mobile-entry-tools {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .mobile-entry-tools .btn {
+    min-height: 38px;
+  }
+
+  .mobile-entry-section {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    background: var(--surface);
+  }
+
+  .mobile-entry-section + .mobile-entry-section {
+    margin-top: 10px;
+  }
+
+  .mobile-entry-section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .mobile-entry-manual-toggle {
+    width: 100%;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+  }
+
+  .mobile-entry-section-head h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 900;
+  }
+
+  .mobile-entry-manual-chevron {
+    color: var(--muted);
+    font-size: 11px;
+    transition: transform 0.16s ease;
+  }
+
+  .mobile-entry-manual-chevron.open {
+    transform: rotate(90deg);
+  }
+
+  .mobile-entry-quick-section {
+    border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+    background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  }
+
+  .mobile-entry-quick-section .input-assist-panel {
+    margin-bottom: 0;
+  }
+
+  .mobile-entry-quick-section .quick-entry-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .mobile-entry-quick-section .quick-entry-bar .btn {
+    min-height: 42px;
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+    font-weight: 900;
+  }
+
+  .mobile-entry-form,
+  .mobile-entry-form.expense-form {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .mobile-entry-form .field input,
+  .mobile-entry-form .field select,
+  .mobile-entry-form .picker,
+  .mobile-entry-form .picker-button,
+  .mobile-entry-form .calendar-input,
+  .mobile-entry-form .calendar-button {
+    min-height: 42px;
+  }
+
+  .mobile-entry-form .picker,
+  .mobile-entry-form .picker-button,
+  .mobile-entry-form .calendar-input,
+  .mobile-entry-form .calendar-button {
+    height: 42px;
+    max-height: 42px;
+  }
+
+  .mobile-entry-form .field-memo,
+  .mobile-entry-form .form-actions {
+    grid-column: auto;
+  }
+
+  .mobile-entry-form .form-actions {
+    position: sticky;
+    bottom: -14px;
+    z-index: 1;
+    display: flex;
+    gap: 8px;
+    margin: 4px -14px -14px;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .mobile-entry-form .form-actions .btn {
+    flex: 1;
+    min-height: 44px;
+  }
+
   .entry-form {
     grid-template-columns: 1fr 1fr;
   }
@@ -3429,6 +3765,43 @@ td.memo {
   .quick-entry-bar,
   .recurring-suggestion {
     grid-template-columns: 1fr;
+  }
+
+  .ledger-filter-toggle {
+    display: inline-flex;
+    width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .ledger-filter-toggle.on {
+    color: #fff;
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .ledger-filter-bar {
+    display: none;
+  }
+
+  .ledger-filter-bar.mobile-open {
+    display: grid;
+  }
+
+  .ledger-filter-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ledger-filter-search,
+  .ledger-filter-actions {
+    grid-column: 1 / -1;
+  }
+
+  .ledger-filter-actions .btn {
+    width: 100%;
   }
 
   .recurring-suggestion {
@@ -3604,6 +3977,10 @@ td.memo {
     gap: 10px;
   }
 
+  .ledger-filter-bar {
+    grid-template-columns: 1fr;
+  }
+
   .loan-interest-calculator,
   .fixed-widget-form .loan-interest-calculator {
     grid-template-columns: 1fr;
@@ -3723,14 +4100,17 @@ td.memo {
     border-radius: 14px 14px 10px 10px;
   }
 
+  .fixed-modal.stage-modal {
+    overflow: hidden;
+  }
+
   .settings-section {
     gap: 10px;
     padding: 12px;
   }
 
   .category-form,
-  .payment-form-actions,
-  .fixed-head {
+  .payment-form-actions {
     align-items: stretch;
     flex-direction: column;
   }
@@ -3740,9 +4120,36 @@ td.memo {
     min-height: 40px;
   }
 
+  .fixed-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 6px 10px;
+  }
+
+  .fixed-toggle {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .fixed-toggle .section-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .fixed-summary {
+    grid-column: 1 / -1;
     align-items: flex-start;
+    gap: 3px;
     margin-left: 0;
+    width: 100%;
+  }
+
+  .fixed-summary-main {
+    justify-content: space-between;
+    width: 100%;
   }
 
   .fixed-widget-form-row {
@@ -3777,59 +4184,130 @@ td.memo {
   .ledger-table tbody {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 6px;
   }
 
   .ledger-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 10px;
     border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 8px 10px;
-    background: var(--surface-2);
+    border-radius: 9px;
+    padding: 8px 9px;
+    background: var(--surface);
   }
 
   .ledger-table tbody td {
-    display: grid;
-    grid-template-columns: 72px 1fr;
+    display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 7px 0;
+    gap: 6px;
+    padding: 0;
     border-bottom: 0;
     white-space: normal;
   }
 
   .ledger-table tbody td::before {
-    content: attr(data-label);
+    display: none;
+  }
+
+  .ledger-table .ledger-select-cell {
+    grid-column: 1 / -1;
+    width: auto;
+    justify-content: flex-start;
+    padding-bottom: 3px;
+  }
+
+  .ledger-table td[data-label='날짜'] {
+    grid-column: 1;
+    grid-row: 2;
     color: var(--muted);
     font-size: 11px;
     font-weight: 800;
   }
 
+  .ledger-table td[data-label='카테고리'] {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
   .ledger-table td.amount {
-    text-align: left;
+    grid-column: 2;
+    grid-row: 1;
+    justify-content: flex-end;
+    text-align: right;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  .ledger-table td[data-label='결제수단'] {
+    grid-column: 1;
+    grid-row: 3;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .ledger-table td.memo {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    min-width: 0;
+    margin-top: 1px;
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .ledger-table td:last-child {
-    display: block;
-    padding-top: 9px;
-  }
-
-  .ledger-table td:last-child::before {
-    display: none;
+    grid-column: 2;
+    grid-row: 2 / 5;
+    align-self: end;
+    justify-content: flex-end;
+    padding-top: 0;
   }
 
   .expense-history-table td:last-child,
   .income-history-table td:last-child {
-    display: grid;
-    padding-top: 7px;
-  }
-
-  .expense-history-table td:last-child::before,
-  .income-history-table td:last-child::before {
-    display: block;
+    grid-column: 1 / -1;
+    grid-row: 5;
+    justify-content: flex-start;
   }
 
   .ledger-table .row-actions {
     justify-content: flex-end;
+    gap: 2px;
+  }
+
+  .ledger-table .icon-btn {
+    width: 24px;
+    height: 24px;
+  }
+
+  .ledger-table tr.inline-editing {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .ledger-table tr.inline-editing td,
+  .ledger-table tr.inline-editing td.amount,
+  .ledger-table tr.inline-editing td.memo,
+  .ledger-table tr.inline-editing td:last-child,
+  .ledger-table tr.inline-editing td[data-label='날짜'],
+  .ledger-table tr.inline-editing td[data-label='카테고리'],
+  .ledger-table tr.inline-editing td[data-label='결제수단'] {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    justify-content: stretch;
+    align-self: stretch;
+    text-align: left;
+  }
+
+  .ledger-table tr.inline-editing td::before {
+    display: block;
+    flex: 0 0 72px;
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 800;
   }
 
   .app-footer {

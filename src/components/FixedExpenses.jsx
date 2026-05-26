@@ -154,6 +154,8 @@ export default function FixedExpenses({
   categories = STAGE_META.지출.categories,
   addCategory,
   paymentMethods = [],
+  collapsed: controlledCollapsed,
+  onCollapsedChange,
 }) {
   const meta = STAGE_META[type] || STAGE_META.지출
   const isExpense = type === '지출'
@@ -164,7 +166,7 @@ export default function FixedExpenses({
   const emptyHelp = isExpense
     ? '+ 버튼으로 월세, 구독료, 보험료를 추가하세요.'
     : '+ 버튼으로 월급, 용돈, 임대수입을 추가하세요.'
-  const [collapsed, setCollapsed] = useState(false)
+  const [internalCollapsed, setInternalCollapsed] = useState(false)
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
@@ -185,6 +187,14 @@ export default function FixedExpenses({
   })
   const ghostRef = useRef(null)
   const dragDataRef = useRef({ renderUnits: [], items: [], updateItem: () => {} })
+  const collapsed = controlledCollapsed === undefined ? internalCollapsed : Boolean(controlledCollapsed)
+
+  function setCollapsed(next) {
+    const value = typeof next === 'function' ? next(collapsed) : next
+    const normalized = Boolean(value)
+    if (controlledCollapsed === undefined) setInternalCollapsed(normalized)
+    onCollapsedChange?.(normalized)
+  }
 
   const categoryOptions = useMemo(() => {
     const current = form.category.trim()
@@ -588,15 +598,19 @@ export default function FixedExpenses({
           <span className={`chevron${collapsed ? '' : ' open'}`}>▶</span>
           <h2 className="section-title" style={{ margin: 0 }}>{fixedLabel}</h2>
         </button>
-        <div className="fixed-summary">
-          <span className="fixed-summary-total">월 {formatKRW(totalMonthly)}</span>
-          <span className="fixed-summary-sub">
-            위젯 {items.length}개 · 카테고리 {groups.length}개
-          </span>
-        </div>
-        <button className="fixed-add-btn" onClick={openAdd} aria-label={`${fixedLabel} 위젯 추가`}>
-          <PlusIcon />
-        </button>
+        {!collapsed && (
+          <div className="fixed-summary">
+            <div className="fixed-summary-main">
+              <span className="fixed-summary-total">월 {formatKRW(totalMonthly)}</span>
+              <button className="fixed-add-btn" onClick={openAdd} aria-label={`${fixedLabel} 위젯 추가`}>
+                <PlusIcon />
+              </button>
+            </div>
+            <span className="fixed-summary-sub">
+              위젯 {items.length}개 · 카테고리 {groups.length}개
+            </span>
+          </div>
+        )}
       </div>
 
       {!collapsed && (

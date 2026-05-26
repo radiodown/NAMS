@@ -229,6 +229,21 @@ export function defaultTaxSettings() {
   }
 }
 
+export function defaultFixedSectionSettings() {
+  return {
+    incomeCollapsed: false,
+    expenseCollapsed: false,
+  }
+}
+
+export function normalizeFixedSectionSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    incomeCollapsed: source.incomeCollapsed === true,
+    expenseCollapsed: source.expenseCollapsed === true,
+  }
+}
+
 export function normalizeTaxSettings(value) {
   const source = value && typeof value === 'object' ? value : {}
   const year = Number(source.year)
@@ -270,6 +285,7 @@ export function buildDefaultDoc() {
     settings: {
       theme: 'light',
       stages: defaultStageConfig(),
+      fixedSections: defaultFixedSectionSettings(),
       taxSettlement: defaultTaxSettings(),
     },
     stages: {
@@ -317,6 +333,7 @@ export function normalizeDoc(raw) {
     settings: {
       theme: source.settings?.theme === 'dark' ? 'dark' : 'light',
       stages: normalizeStageConfig(source.settings?.stages),
+      fixedSections: normalizeFixedSectionSettings(source.settings?.fixedSections),
       taxSettlement: normalizeTaxSettings(source.settings?.taxSettlement),
     },
     stages: {

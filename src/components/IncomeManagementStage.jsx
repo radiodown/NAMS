@@ -31,6 +31,7 @@ export default function IncomeManagementStage({
   const [month, setMonth] = useState(() => todayStr().slice(0, 7))
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
+  const [historySearch, setHistorySearch] = useState('')
   const currentMonth = todayStr().slice(0, 7)
   const periodLabel = periodMode === 'year' ? `${year}년` : month
 
@@ -73,7 +74,7 @@ export default function IncomeManagementStage({
     () => sumBy(rows, (row) => (row.fixedId ? '고정수입' : '수동입력')),
     [rows]
   )
-  const listRows = useMemo(
+  const allListRows = useMemo(
     () =>
       [...rows].sort(
         (a, b) =>
@@ -82,6 +83,23 @@ export default function IncomeManagementStage({
       ),
     [rows]
   )
+  const listRows = useMemo(() => {
+    const query = historySearch.trim().toLowerCase()
+    if (!query) return allListRows
+    return allListRows.filter((row) =>
+      [
+        row.date,
+        row.fixedId ? '고정수입 고정' : '수동입력 수동',
+        row.category,
+        row.memo,
+        formatKRW(row.amount),
+        String(row.amount || ''),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    )
+  }, [allListRows, historySearch])
   const topCategory = byCategory[0]
 
   return (
@@ -180,10 +198,38 @@ export default function IncomeManagementStage({
 
       <div className="card">
         <h2 className="section-title">수입 내역</h2>
-        {listRows.length === 0 ? (
+        {allListRows.length > 0 && (
+          <div className="ledger-filter-bar management-history-search">
+            <div className="ledger-filter-field ledger-filter-search">
+              <span>검색</span>
+              <input
+                type="search"
+                placeholder="날짜, 구분, 카테고리, 메모, 금액"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+              />
+            </div>
+            <div className="ledger-filter-actions">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={!historySearch.trim()}
+                onClick={() => setHistorySearch('')}
+              >
+                초기화
+              </button>
+            </div>
+          </div>
+        )}
+        {allListRows.length === 0 ? (
           <div className="empty">
             <strong>선택한 기간의 수입이 없습니다</strong>
             기간을 바꾸거나 수입 항목을 추가해 보세요.
+          </div>
+        ) : listRows.length === 0 ? (
+          <div className="empty">
+            <strong>조건에 맞는 수입 내역이 없습니다</strong>
+            검색어를 조정해 보세요.
           </div>
         ) : (
           <div className="table-wrap">

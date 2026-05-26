@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLedger } from './lib/useLedger'
 import { useFixedExpenses } from './lib/useFixedExpenses'
 import { useFixedIncomes } from './lib/useFixedIncomes'
@@ -24,7 +24,12 @@ import SummaryStage from './components/SummaryStage'
 import TaxSettlementStage from './components/TaxSettlementStage'
 import SettingsModal from './components/SettingsModal'
 import { clearStoredData as clearAppStoredData, useStoredSlice } from './lib/store'
-import { STAGE_TABS as TABS, normalizeStageConfig, defaultStageConfig } from './lib/schema'
+import {
+  STAGE_TABS as TABS,
+  normalizeStageConfig,
+  defaultFixedSectionSettings,
+  defaultStageConfig,
+} from './lib/schema'
 import {
   BACKUP_MIME,
   backupFileName,
@@ -71,6 +76,10 @@ export default function App() {
   const [stageConfig, setStageConfig] = useStoredSlice(
     STORE_PATHS.settings.stages,
     defaultStageConfig
+  )
+  const [fixedSections, setFixedSections] = useStoredSlice(
+    STORE_PATHS.settings.fixedSections,
+    defaultFixedSectionSettings
   )
   const [stageOpen, setStageOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -221,6 +230,17 @@ export default function App() {
   }, [transactionEntries, invest.items, simulations.items])
 
   const visibleCount = stageConfig.filter((stage) => stage.visible).length
+
+  const setFixedSectionCollapsed = useCallback(
+    (key, collapsed) => {
+      setFixedSections((prev) => ({
+        ...defaultFixedSectionSettings(),
+        ...(prev && typeof prev === 'object' ? prev : {}),
+        [key]: Boolean(collapsed),
+      }))
+    },
+    [setFixedSections]
+  )
 
   function toggleStage(name) {
     setStageConfig((prev) =>
@@ -439,7 +459,7 @@ export default function App() {
       )}
 
       {stageOpen && (
-        <div className="fixed-modal-backdrop" onClick={() => setStageOpen(false)}>
+        <div className="fixed-modal-backdrop stage-backdrop" onClick={() => setStageOpen(false)}>
           <div
             className="fixed-modal stage-modal"
             role="dialog"
@@ -554,6 +574,14 @@ export default function App() {
             removeEntry={ledger.removeEntry}
             fixed={fixed}
             fixedIncome={fixedIncome}
+            fixedExpenseCollapsed={fixedSections.expenseCollapsed}
+            setFixedExpenseCollapsed={(collapsed) =>
+              setFixedSectionCollapsed('expenseCollapsed', collapsed)
+            }
+            fixedIncomeCollapsed={fixedSections.incomeCollapsed}
+            setFixedIncomeCollapsed={(collapsed) =>
+              setFixedSectionCollapsed('incomeCollapsed', collapsed)
+            }
             fixedExpenseEntries={currentFixedEntries}
             previousFixedExpenseEntries={previousFixedEntries}
             fixedIncomeEntries={currentFixedIncomeEntries}
@@ -569,7 +597,7 @@ export default function App() {
       </div>
 
       <footer className="app-footer">
-        데이터는 이 브라우저에 자동 저장됩니다 · 백업하거나 다른 기기로 옮기려면 JSON으로 내보내세요
+        Copyright 2026 NAMS. All rights reserved.
       </footer>
     </div>
   )

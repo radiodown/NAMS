@@ -2,6 +2,7 @@ export const STORE_PATHS = Object.freeze({
   settings: Object.freeze({
     stages: 'settings.stages',
     theme: 'settings.theme',
+    fixedSections: 'settings.fixedSections',
     taxSettlement: 'settings.taxSettlement',
   }),
   income: Object.freeze({

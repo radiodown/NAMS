@@ -29,12 +29,20 @@ const blankForm = () => ({
   loanGraceMonths: '',
 })
 const blankCategoryForm = () => ({ original: '', value: '' })
+const PAYMENT_FILTER_UNSPECIFIED = '__unspecified__'
 
 function previousMonthOf(month) {
   const [year, monthNum] = month.split('-').map(Number)
   if (!year || !monthNum) return ''
   const date = new Date(year, monthNum - 2, 1)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function lastDateOfMonth(month) {
+  const [year, monthNum] = String(month || '').split('-').map(Number)
+  if (!year || !monthNum) return ''
+  const date = new Date(year, monthNum, 0)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
 function monthTrend(current, previous) {
@@ -65,6 +73,10 @@ export default function LedgerStage({
   removeEntry,
   fixed,
   fixedIncome,
+  fixedExpenseCollapsed,
+  setFixedExpenseCollapsed,
+  fixedIncomeCollapsed,
+  setFixedIncomeCollapsed,
   fixedExpenseEntries = [],
   previousFixedExpenseEntries = [],
   fixedIncomeEntries = [],
@@ -83,11 +95,19 @@ export default function LedgerStage({
   const [categoryForm, setCategoryForm] = useState(blankCategoryForm)
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
+  const [mobileEntryOpen, setMobileEntryOpen] = useState(false)
+  const [mobileManualOpen, setMobileManualOpen] = useState(false)
   const [quickInput, setQuickInput] = useState('')
   const [inlineEditId, setInlineEditId] = useState(null)
   const [inlineDraft, setInlineDraft] = useState(blankForm)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyStartDate, setHistoryStartDate] = useState('')
+  const [historyEndDate, setHistoryEndDate] = useState('')
+  const [historyCategory, setHistoryCategory] = useState('')
+  const [historyPayment, setHistoryPayment] = useState('')
+  const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false)
 
   const categoryOptions = useMemo(() => {
     const current = form.category.trim()
@@ -116,11 +136,77 @@ export default function LedgerStage({
       : type === '수입'
         ? previousFixedIncomeEntries
         : []
+  const currentMonth = todayStr().slice(0, 7)
+  const currentMonthStart = `${currentMonth}-01`
+  const currentMonthEnd = lastDateOfMonth(currentMonth)
   const rows = useMemo(
     () => (type === '지출' ? ledgerRows.filter((e) => !e.fixedId) : ledgerRows),
     [ledgerRows, type]
   )
-  const rowIds = useMemo(() => rows.map((row) => row.id), [rows])
+  const historyCategoryOptions = useMemo(() => {
+    const names = [...new Set([...categoryList, ...rows.map((row) => row.category)].filter(Boolean))]
+    return [
+      { value: '', label: '전체 카테고리' },
+      ...names.map((name) => ({ value: name, label: name })),
+    ]
+  }, [categoryList, rows])
+  const historyPaymentOptions = useMemo(
+    () => [
+      { value: '', label: '전체 결제수단' },
+      { value: PAYMENT_FILTER_UNSPECIFIED, label: '미지정' },
+      ...paymentMethods.map((method) => ({ value: method.id, label: method.name })),
+    ],
+    [paymentMethods]
+  )
+  const filteredRows = useMemo(() => {
+    const query = historySearch.trim().toLowerCase()
+    return rows.filter((row) => {
+      if (monthOf(row.date) !== currentMonth) return false
+      if (historyStartDate && row.date < historyStartDate) return false
+      if (historyEndDate && row.date > historyEndDate) return false
+      if (historyCategory && row.category !== historyCategory) return false
+      if (type === '지출' && historyPayment) {
+        if (historyPayment === PAYMENT_FILTER_UNSPECIFIED) {
+          if (row.paymentMethodId) return false
+        } else if (row.paymentMethodId !== historyPayment) {
+          return false
+        }
+      }
+      if (!query) return true
+      const paymentLabel =
+        paymentMethods.find((method) => method.id === row.paymentMethodId)?.name ||
+        row.paymentMethod ||
+        '미지정'
+      return [
+        row.date,
+        row.category,
+        row.memo,
+        paymentLabel,
+        formatKRW(row.amount),
+        String(row.amount || ''),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+  }, [
+    currentMonth,
+    historyCategory,
+    historyEndDate,
+    historyPayment,
+    historySearch,
+    historyStartDate,
+    paymentMethods,
+    rows,
+    type,
+  ])
+  const historyFilterActive =
+    Boolean(historySearch.trim()) ||
+    Boolean(historyStartDate) ||
+    Boolean(historyEndDate) ||
+    Boolean(historyCategory) ||
+    Boolean(historyPayment)
+  const rowIds = useMemo(() => filteredRows.map((row) => row.id), [filteredRows])
   const selectedRowIds = useMemo(
     () => rowIds.filter((id) => selectedIds.has(id)),
     [rowIds, selectedIds]
@@ -136,13 +222,6 @@ export default function LedgerStage({
       ),
     [fixed?.items, fixedIncome?.items, rows, type]
   )
-  const totalRows = useMemo(
-    () => (type === '지출' || type === '수입' ? [...ledgerRows, ...activeFixedEntries] : ledgerRows),
-    [activeFixedEntries, ledgerRows, type]
-  )
-
-  const total = useMemo(() => totalRows.reduce((s, e) => s + e.amount, 0), [totalRows])
-  const currentMonth = todayStr().slice(0, 7)
   const previousMonth = previousMonthOf(currentMonth)
   const currentMonthRows = useMemo(
     () => ledgerRows.filter((e) => monthOf(e.date) === currentMonth),
@@ -169,10 +248,6 @@ export default function LedgerStage({
   const hasPreviousMonthRows = previousMonthRows.length > 0 || previousActiveFixedEntries.length > 0
   const monthTrendInfo = monthTrend(
     visibleMonthTotal,
-    hasPreviousMonthRows ? previousMonthTotal + previousFixedMonthTotal : 0
-  )
-  const totalFixedTrend = monthTrend(
-    monthTotal + fixedMonthTotal,
     hasPreviousMonthRows ? previousMonthTotal + previousFixedMonthTotal : 0
   )
   const categoryStats = useMemo(() => {
@@ -290,6 +365,7 @@ export default function LedgerStage({
       category: payload.category,
       paymentMethodId: type === '지출' ? payload.paymentMethodId || '' : '',
     })
+    setMobileEntryOpen(false)
   }
 
   function startEdit(row) {
@@ -364,6 +440,7 @@ export default function LedgerStage({
       category: payload.category,
       paymentMethodId,
     })
+    setMobileEntryOpen(false)
   }
 
   function applyRecent(row) {
@@ -566,23 +643,167 @@ export default function LedgerStage({
     }
   }
 
+  function resetHistoryFilters() {
+    setHistorySearch('')
+    setHistoryStartDate('')
+    setHistoryEndDate('')
+    setHistoryCategory('')
+    setHistoryPayment('')
+  }
+
+  function normalizeHistoryDate(value) {
+    if (!value || monthOf(value) !== currentMonth) return ''
+    if (value < currentMonthStart) return currentMonthStart
+    if (currentMonthEnd && value > currentMonthEnd) return currentMonthEnd
+    return value
+  }
+
+  function updateHistoryStartDate(value) {
+    const next = normalizeHistoryDate(value)
+    setHistoryStartDate(next)
+    if (next && historyEndDate && historyEndDate < next) setHistoryEndDate(next)
+  }
+
+  function updateHistoryEndDate(value) {
+    const next = normalizeHistoryDate(value)
+    setHistoryEndDate(next)
+    if (next && historyStartDate && historyStartDate > next) setHistoryStartDate(next)
+  }
+
+  function openMobileEntry() {
+    setEditingId(null)
+    setMobileEntryOpen(true)
+  }
+
+  function renderInputAssist() {
+    return (
+      <div className="input-assist-panel">
+        <div className="quick-entry-bar">
+          <textarea
+            rows={1}
+            placeholder={
+              type === '지출'
+                ? '오늘 점심 9,500 체크카드'
+                : '25일 월급 300만'
+            }
+            value={quickInput}
+            onChange={(e) => setQuickInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                addQuickInput()
+              }
+            }}
+          />
+          <button type="button" className="btn btn-sm" onClick={addQuickInput}>
+            바로 추가
+          </button>
+        </div>
+        {recentSuggestions.length > 0 && (
+          <div className="assist-chip-row">
+            {recentSuggestions.map((row) => (
+              <button
+                type="button"
+                className="assist-chip"
+                key={`${row.id}-${row.date}`}
+                onClick={() => applyRecent(row)}
+              >
+                <strong>{row.category}</strong>
+                <span>{formatKRW(row.amount)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function renderEntryForm(extraClass = '') {
+    const formClass = [
+      'entry-form',
+      type === '지출' ? 'expense-form' : '',
+      extraClass,
+    ].filter(Boolean).join(' ')
+
+    return (
+      <form className={formClass} onSubmit={submit}>
+        <div className="field">
+          <label>날짜</label>
+          <CalendarInput value={form.date} onChange={(value) => set('date', value)} />
+        </div>
+        <div className="field">
+          <label>카테고리</label>
+          <Picker
+            value={form.category}
+            options={categoryOptions}
+            placeholder="카테고리 선택"
+            onChange={(value) => set('category', value)}
+          />
+        </div>
+        {type === '지출' && (
+          <div className="field">
+            <label>결제수단</label>
+            <Picker
+              value={form.paymentMethodId}
+              options={paymentOptions}
+              placeholder="미지정"
+              onChange={(value) => set('paymentMethodId', value)}
+            />
+          </div>
+        )}
+        <div className="field">
+          <label>금액 (원)</label>
+          <NumberInput
+            min="0"
+            step="1"
+            decimal={false}
+            amount
+            placeholder="0"
+            value={form.amount}
+            onChange={(value) => set('amount', value)}
+          />
+        </div>
+        {loanInterestMode && (
+          <LoanInterestCalculator
+            principal={form.loanPrincipal}
+            rate={form.loanRate}
+            months={form.loanMonths}
+            method={form.loanMethod}
+            round={form.loanRound}
+            graceMonths={form.loanGraceMonths}
+            onChange={set}
+            onApply={(amount) => set('amount', String(amount))}
+          />
+        )}
+        <div className="field field-memo">
+          <label>메모</label>
+          <input
+            type="text"
+            placeholder="선택 입력"
+            value={form.memo}
+            onChange={(e) => set('memo', e.target.value)}
+          />
+        </div>
+        <div className="field form-actions">
+          <button type="submit" className="btn btn-accent">
+            {editingId ? '수정 완료' : '추가'}
+          </button>
+          {editingId && (
+            <button type="button" className="btn" onClick={cancelEdit}>
+              취소
+            </button>
+          )}
+        </div>
+      </form>
+    )
+  }
+
   return (
     <div className="stage" style={{ '--accent': meta.color }}>
       <div className="stat-grid">
         <div className="stat-card">
-          <div className="label">{type} 전체 합계</div>
-          <div className="value accent">
-            {formatKRW(total)}
-            {(type === '지출' || type === '수입') && (
-              <span className={`month-change ${totalFixedTrend.tone}`}>
-                ({totalFixedTrend.mark} {totalFixedTrend.percent}%)
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="stat-card">
           <div className="label">이번 달 ({currentMonth})</div>
-          <div className="value">
+          <div className="value accent">
             {formatKRW(visibleMonthTotal)}
             {(type === '지출' || type === '수입') && (
               <span className={`month-change ${monthTrendInfo.tone}`}>
@@ -616,6 +837,8 @@ export default function LedgerStage({
           categories={categoryList}
           addCategory={addCategory}
           paymentMethods={paymentMethods}
+          collapsed={fixedExpenseCollapsed}
+          onCollapsedChange={setFixedExpenseCollapsed}
         />
       )}
 
@@ -628,6 +851,8 @@ export default function LedgerStage({
           removeItem={fixedIncome.removeItem}
           categories={categoryList}
           addCategory={addCategory}
+          collapsed={fixedIncomeCollapsed}
+          onCollapsedChange={setFixedIncomeCollapsed}
         />
       )}
 
@@ -646,7 +871,7 @@ export default function LedgerStage({
         </div>
       )}
 
-      <div className="card">
+      <div className="card ledger-entry-card">
         <div className="form-card-head">
           <h2 className="section-title">{editingId ? `${type} 항목 수정` : `${type} 항목 추가`}</h2>
           <div className="form-card-actions">
@@ -660,114 +885,75 @@ export default function LedgerStage({
             )}
           </div>
         </div>
-        <div className="input-assist-panel">
-          <div className="quick-entry-bar">
-            <textarea
-              rows={1}
-              placeholder={
-                type === '지출'
-                  ? '오늘 점심 9,500 체크카드'
-                  : '25일 월급 300만'
-              }
-              value={quickInput}
-              onChange={(e) => setQuickInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  addQuickInput()
-                }
-              }}
-            />
-            <button type="button" className="btn btn-sm" onClick={addQuickInput}>
-              바로 추가
-            </button>
-          </div>
-          {recentSuggestions.length > 0 && (
-            <div className="assist-chip-row">
-              {recentSuggestions.map((row) => (
-                <button
-                  type="button"
-                  className="assist-chip"
-                  key={`${row.id}-${row.date}`}
-                  onClick={() => applyRecent(row)}
-                >
-                  <strong>{row.category}</strong>
-                  <span>{formatKRW(row.amount)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <form className={`entry-form${type === '지출' ? ' expense-form' : ''}`} onSubmit={submit}>
-          <div className="field">
-            <label>날짜</label>
-            <CalendarInput value={form.date} onChange={(value) => set('date', value)} />
-          </div>
-          <div className="field">
-            <label>카테고리</label>
-            <Picker
-              value={form.category}
-              options={categoryOptions}
-              placeholder="카테고리 선택"
-              onChange={(value) => set('category', value)}
-            />
-          </div>
-          {type === '지출' && (
-            <div className="field">
-              <label>결제수단</label>
-              <Picker
-                value={form.paymentMethodId}
-                options={paymentOptions}
-                placeholder="미지정"
-                onChange={(value) => set('paymentMethodId', value)}
-              />
-            </div>
-          )}
-          <div className="field">
-            <label>금액 (원)</label>
-            <NumberInput
-              min="0"
-              step="1"
-              decimal={false}
-              amount
-              placeholder="0"
-              value={form.amount}
-              onChange={(value) => set('amount', value)}
-            />
-          </div>
-          {loanInterestMode && (
-            <LoanInterestCalculator
-              principal={form.loanPrincipal}
-              rate={form.loanRate}
-              months={form.loanMonths}
-              method={form.loanMethod}
-              round={form.loanRound}
-              graceMonths={form.loanGraceMonths}
-              onChange={set}
-              onApply={(amount) => set('amount', String(amount))}
-            />
-          )}
-          <div className="field field-memo">
-            <label>메모</label>
-            <input
-              type="text"
-              placeholder="선택 입력"
-              value={form.memo}
-              onChange={(e) => set('memo', e.target.value)}
-            />
-          </div>
-          <div className="field form-actions">
-            <button type="submit" className="btn btn-accent">
-              {editingId ? '수정 완료' : '추가'}
-            </button>
-            {editingId && (
-              <button type="button" className="btn" onClick={cancelEdit}>
-                취소
-              </button>
-            )}
-          </div>
-        </form>
+        {renderInputAssist()}
+        {renderEntryForm()}
       </div>
+
+      <button
+        type="button"
+        className="mobile-entry-fab"
+        onClick={openMobileEntry}
+        aria-label={`${type} 항목 추가`}
+      >
+        +
+      </button>
+
+      {mobileEntryOpen && (
+        <div className="mobile-entry-backdrop" onClick={() => setMobileEntryOpen(false)}>
+          <div
+            className="mobile-entry-sheet"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mobile-entry-head">
+              <h2>{type} 추가</h2>
+              <button
+                type="button"
+                className="mobile-entry-close"
+                onClick={() => setMobileEntryOpen(false)}
+                aria-label="닫기"
+              >
+                ×
+              </button>
+            </div>
+            <div className="mobile-entry-section mobile-entry-quick-section">
+              <div className="mobile-entry-section-head">
+                <h3>빠른 추가</h3>
+              </div>
+              {renderInputAssist()}
+            </div>
+            <div className="mobile-entry-section mobile-entry-manual-section">
+              <button
+                type="button"
+                className="mobile-entry-section-head mobile-entry-manual-toggle"
+                onClick={() => setMobileManualOpen((open) => !open)}
+                aria-expanded={mobileManualOpen}
+              >
+                <h3>수동 추가</h3>
+                <span className={`mobile-entry-manual-chevron${mobileManualOpen ? ' open' : ''}`}>
+                  ▶
+                </span>
+              </button>
+              {mobileManualOpen && (
+                <>
+                  <div className="mobile-entry-tools">
+                    <button type="button" className="btn btn-sm" onClick={() => setCategoryOpen(true)}>
+                      카테고리 추가/관리
+                    </button>
+                    {type === '지출' && (
+                      <button type="button" className="btn btn-sm" onClick={() => setPaymentOpen(true)}>
+                        결제수단 추가/관리
+                      </button>
+                    )}
+                  </div>
+                  {renderEntryForm('mobile-entry-form')}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {categoryOpen && (
         <div className="fixed-modal-backdrop" onClick={() => setCategoryOpen(false)}>
@@ -863,16 +1049,99 @@ export default function LedgerStage({
       <div className="card">
         <div className="ledger-list-head">
           <h2 className="section-title">{type} 내역</h2>
-          {selectionMode && selectedRowIds.length > 0 && (
-            <button type="button" className="btn btn-sm btn-danger" onClick={deleteSelectedRows}>
-              선택 삭제 {selectedRowIds.length}
-            </button>
-          )}
+          <div className="ledger-list-actions">
+            {rows.length > 0 && (
+              <button
+                type="button"
+                className={`icon-btn ledger-filter-toggle${historyFiltersOpen || historyFilterActive ? ' on' : ''}`}
+                onClick={() => setHistoryFiltersOpen((open) => !open)}
+                aria-label={`${type} 내역 검색 필터 ${historyFiltersOpen ? '닫기' : '열기'}`}
+                title="검색 필터"
+              >
+                ⌕
+              </button>
+            )}
+            {selectionMode && selectedRowIds.length > 0 && (
+              <button type="button" className="btn btn-sm btn-danger" onClick={deleteSelectedRows}>
+                선택 삭제 {selectedRowIds.length}
+              </button>
+            )}
+          </div>
         </div>
+        {rows.length > 0 && (
+          <div className={`ledger-filter-bar${historyFiltersOpen ? ' mobile-open' : ''}`}>
+            <div className="ledger-filter-field ledger-filter-search">
+              <span>검색</span>
+              <input
+                type="search"
+                placeholder="현재 달 내 검색"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+              />
+            </div>
+            <div className="ledger-filter-field">
+              <span>시작일</span>
+              <CalendarInput
+                value={historyStartDate}
+                onChange={updateHistoryStartDate}
+                placeholder="월 시작"
+                ariaLabel={`${type} 내역 시작일 필터`}
+                min={currentMonthStart}
+                max={currentMonthEnd}
+              />
+            </div>
+            <div className="ledger-filter-field">
+              <span>종료일</span>
+              <CalendarInput
+                value={historyEndDate}
+                onChange={updateHistoryEndDate}
+                placeholder="월 끝"
+                ariaLabel={`${type} 내역 종료일 필터`}
+                min={currentMonthStart}
+                max={currentMonthEnd}
+              />
+            </div>
+            <div className="ledger-filter-field">
+              <span>카테고리</span>
+              <Picker
+                value={historyCategory}
+                options={historyCategoryOptions}
+                placeholder="전체 카테고리"
+                onChange={setHistoryCategory}
+              />
+            </div>
+            {type === '지출' && (
+              <div className="ledger-filter-field">
+                <span>결제수단</span>
+                <Picker
+                  value={historyPayment}
+                  options={historyPaymentOptions}
+                  placeholder="전체 결제수단"
+                  onChange={setHistoryPayment}
+                />
+              </div>
+            )}
+            <div className="ledger-filter-actions">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={!historyFilterActive}
+                onClick={resetHistoryFilters}
+              >
+                초기화
+              </button>
+            </div>
+          </div>
+        )}
         {rows.length === 0 ? (
           <div className="empty">
             <strong>아직 {type} 기록이 없습니다</strong>
             위 양식으로 첫 {type} 항목을 추가해 보세요.
+          </div>
+        ) : filteredRows.length === 0 ? (
+          <div className="empty">
+            <strong>조건에 맞는 {type} 내역이 없습니다</strong>
+            검색어나 필터를 조정해 보세요.
           </div>
         ) : (
           <div
@@ -901,7 +1170,7 @@ export default function LedgerStage({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
+                {filteredRows.map((row) => {
                   const inlineEditing = inlineEditId === row.id
                   const inlineCategoryOptions = optionsWithCurrent(categoryList, inlineDraft.category)
                   return (
@@ -930,6 +1199,8 @@ export default function LedgerStage({
                           <CalendarInput
                             value={inlineDraft.date}
                             onChange={(value) => setInline('date', value)}
+                            min={currentMonthStart}
+                            max={currentMonthEnd}
                           />
                         ) : (
                           row.date || '—'

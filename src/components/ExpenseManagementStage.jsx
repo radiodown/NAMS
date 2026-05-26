@@ -40,6 +40,7 @@ export default function ExpenseManagementStage({
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
   const [methodChange, setMethodChange] = useState({ from: '', to: '' })
+  const [historySearch, setHistorySearch] = useState('')
   const methods = paymentMethods.items
   const periodLabel = periodMode === 'year' ? `${year}년` : month
   const limitMultiplier = periodMode === 'year' ? 12 : 1
@@ -83,7 +84,7 @@ export default function ExpenseManagementStage({
       sumBy(rows, (row) => methodName(methods, row.paymentMethodId, row.paymentMethod)),
     [rows, methods]
   )
-  const expenseListRows = useMemo(
+  const allExpenseListRows = useMemo(
     () =>
       [...rows].sort(
         (a, b) =>
@@ -92,6 +93,25 @@ export default function ExpenseManagementStage({
       ),
     [rows]
   )
+  const expenseListRows = useMemo(() => {
+    const query = historySearch.trim().toLowerCase()
+    if (!query) return allExpenseListRows
+    return allExpenseListRows.filter((row) => {
+      const paymentLabel = methodName(methods, row.paymentMethodId, row.paymentMethod)
+      return [
+        row.date,
+        row.category,
+        paymentLabel,
+        row.memo,
+        row.fixedId ? '고정지출 고정' : '수동입력 수동',
+        formatKRW(row.amount),
+        String(row.amount || ''),
+      ]
+        .join(' ')
+        .toLowerCase()
+        .includes(query)
+    })
+  }, [allExpenseListRows, historySearch, methods])
 
   const methodCards = useMemo(() => {
     const spentById = new Map()
@@ -315,10 +335,38 @@ export default function ExpenseManagementStage({
 
       <div className="card">
         <h2 className="section-title">지출 내역</h2>
-        {expenseListRows.length === 0 ? (
+        {allExpenseListRows.length > 0 && (
+          <div className="ledger-filter-bar management-history-search">
+            <div className="ledger-filter-field ledger-filter-search">
+              <span>검색</span>
+              <input
+                type="search"
+                placeholder="날짜, 카테고리, 결제수단, 메모, 금액"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+              />
+            </div>
+            <div className="ledger-filter-actions">
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={!historySearch.trim()}
+                onClick={() => setHistorySearch('')}
+              >
+                초기화
+              </button>
+            </div>
+          </div>
+        )}
+        {allExpenseListRows.length === 0 ? (
           <div className="empty">
             <strong>선택한 기간의 지출이 없습니다</strong>
             기간을 바꾸거나 지출 항목을 추가해 보세요.
+          </div>
+        ) : expenseListRows.length === 0 ? (
+          <div className="empty">
+            <strong>조건에 맞는 지출 내역이 없습니다</strong>
+            검색어를 조정해 보세요.
           </div>
         ) : (
           <div className="table-wrap">

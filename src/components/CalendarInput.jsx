@@ -45,6 +45,33 @@ function parseValue(value, mode) {
   return parseDate(value)
 }
 
+function normalizeForMode(date, mode) {
+  if (!date) return null
+  if (mode === 'year') return new Date(date.getFullYear(), 0, 1)
+  if (mode === 'month') return new Date(date.getFullYear(), date.getMonth(), 1)
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function rangeForVisible(date, mode) {
+  if (mode === 'year') {
+    const startYear = Math.floor(date.getFullYear() / 12) * 12
+    return {
+      start: new Date(startYear, 0, 1),
+      end: new Date(startYear + 11, 11, 31),
+    }
+  }
+  if (mode === 'month') {
+    return {
+      start: new Date(date.getFullYear(), 0, 1),
+      end: new Date(date.getFullYear(), 11, 31),
+    }
+  }
+  return {
+    start: new Date(date.getFullYear(), date.getMonth(), 1),
+    end: new Date(date.getFullYear(), date.getMonth() + 1, 0),
+  }
+}
+
 function addMonths(date, amount) {
   return new Date(date.getFullYear(), date.getMonth() + amount, 1)
 }
@@ -67,6 +94,8 @@ export default function CalendarInput({
   mode = 'date',
   placeholder = '날짜 선택',
   ariaLabel,
+  min = '',
+  max = '',
 }) {
   const [open, setOpen] = useState(false)
   const [visible, setVisible] = useState(() => {
@@ -78,6 +107,8 @@ export default function CalendarInput({
   const selectedDate = useMemo(() => parseDate(value), [value])
   const selectedMonth = useMemo(() => parseMonth(value), [value])
   const selectedYear = useMemo(() => parseYear(value), [value])
+  const minDate = useMemo(() => normalizeForMode(parseValue(min, mode), mode), [min, mode])
+  const maxDate = useMemo(() => normalizeForMode(parseValue(max, mode), mode), [max, mode])
   const empty = !value
 
   useEffect(() => {
@@ -97,18 +128,45 @@ export default function CalendarInput({
   }, [visible])
   const yearStart = Math.floor(visible.getFullYear() / 12) * 12
 
+  function isInRange(date) {
+    const normalized = normalizeForMode(date, mode)
+    if (!normalized) return false
+    if (minDate && normalized < minDate) return false
+    if (maxDate && normalized > maxDate) return false
+    return true
+  }
+
+  function canShow(nextVisible) {
+    const range = rangeForVisible(nextVisible, mode)
+    if (minDate && range.end < minDate) return false
+    if (maxDate && range.start > maxDate) return false
+    return true
+  }
+
+  const previousVisible =
+    mode === 'year' ? addYears(visible, -12) : mode === 'month' ? addYears(visible, -1) : addMonths(visible, -1)
+  const nextVisible =
+    mode === 'year' ? addYears(visible, 12) : mode === 'month' ? addYears(visible, 1) : addMonths(visible, 1)
+  const canMovePrevious = canShow(previousVisible)
+  const canMoveNext = canShow(nextVisible)
+
   function pickDate(date) {
+    if (!isInRange(date)) return
     onChange?.(dateValue(date))
     setOpen(false)
   }
 
   function pickMonth(month) {
-    onChange?.(monthValue(new Date(visible.getFullYear(), month, 1)))
+    const date = new Date(visible.getFullYear(), month, 1)
+    if (!isInRange(date)) return
+    onChange?.(monthValue(date))
     setOpen(false)
   }
 
   function pickYear(year) {
-    onChange?.(yearValue(new Date(year, 0, 1)))
+    const date = new Date(year, 0, 1)
+    if (!isInRange(date)) return
+    onChange?.(yearValue(date))
     setOpen(false)
   }
 
@@ -137,12 +195,11 @@ export default function CalendarInput({
             <button
               type="button"
               className="calendar-nav"
+              disabled={!canMovePrevious}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() =>
-                setVisible((date) =>
-                  mode === 'year' ? addYears(date, -12) : mode === 'month' ? addYears(date, -1) : addMonths(date, -1)
-                )
-              }
+              onClick={() => {
+                if (canMovePrevious) setVisible(previousVisible)
+              }}
               aria-label="이전"
             >
               ‹
@@ -155,12 +212,11 @@ export default function CalendarInput({
             <button
               type="button"
               className="calendar-nav"
+              disabled={!canMoveNext}
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() =>
-                setVisible((date) =>
-                  mode === 'year' ? addYears(date, 12) : mode === 'month' ? addYears(date, 1) : addMonths(date, 1)
-                )
-              }
+              onClick={() => {
+                if (canMoveNext) setVisible(nextVisible)
+              }}
               aria-label="다음"
             >
               ›
@@ -172,10 +228,12 @@ export default function CalendarInput({
               {Array.from({ length: 12 }, (_, index) => {
                 const year = yearStart + index
                 const active = selectedYear && selectedYear.getFullYear() === year
+                const disabled = !isInRange(new Date(year, 0, 1))
                 return (
                   <button
                     type="button"
                     className={`calendar-cell year${active ? ' selected' : ''}`}
+                    disabled={disabled}
                     key={year}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pickYear(year)}
@@ -192,10 +250,12 @@ export default function CalendarInput({
                   selectedMonth &&
                   selectedMonth.getFullYear() === visible.getFullYear() &&
                   selectedMonth.getMonth() === month
+                const disabled = !isInRange(new Date(visible.getFullYear(), month, 1))
                 return (
                   <button
                     type="button"
                     className={`calendar-cell month${active ? ' selected' : ''}`}
+                    disabled={disabled}
                     key={month}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => pickMonth(month)}
@@ -218,10 +278,12 @@ export default function CalendarInput({
                   const selected = selectedDate && dateValue(selectedDate) === valueKey
                   const outside = date.getMonth() !== visible.getMonth()
                   const today = dateValue(new Date()) === valueKey
+                  const disabled = !isInRange(date)
                   return (
                     <button
                       type="button"
                       className={`calendar-cell${selected ? ' selected' : ''}${outside ? ' outside' : ''}${today ? ' today' : ''}`}
+                      disabled={disabled}
                       key={valueKey}
                       onMouseDown={(e) => e.preventDefault()}
                       onClick={() => pickDate(date)}
