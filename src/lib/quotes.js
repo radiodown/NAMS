@@ -19,6 +19,34 @@ export function normalizeExchangeSymbol(base, target = 'KRW') {
 
 const QUOTE_TIMEOUT_MS = 12000
 const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
+const STOCK_SEARCH_PRESETS = [
+  { symbol: '005930.KS', name: '삼성전자', keywords: ['samsung', 'samsung electronics'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '000660.KS', name: 'SK하이닉스', keywords: ['sk hynix', '하이닉스'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '373220.KS', name: 'LG에너지솔루션', keywords: ['lg energy solution', '엘지에너지솔루션'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '207940.KS', name: '삼성바이오로직스', keywords: ['samsung biologics'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '005380.KS', name: '현대차', keywords: ['hyundai motor', '현대자동차'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '000270.KS', name: '기아', keywords: ['kia'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '035420.KS', name: 'NAVER', keywords: ['naver', '네이버'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '035720.KS', name: '카카오', keywords: ['kakao'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '051910.KS', name: 'LG화학', keywords: ['lg chem', '엘지화학'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '006400.KS', name: '삼성SDI', keywords: ['samsung sdi'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '005490.KS', name: 'POSCO홀딩스', keywords: ['posco', '포스코'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '068270.KS', name: '셀트리온', keywords: ['celltrion'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '105560.KS', name: 'KB금융', keywords: ['kb financial', '국민은행'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '055550.KS', name: '신한지주', keywords: ['shinhan financial', '신한금융'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '028260.KS', name: '삼성물산', keywords: ['samsung c&t'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '012330.KS', name: '현대모비스', keywords: ['hyundai mobis'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '066570.KS', name: 'LG전자', keywords: ['lg electronics', '엘지전자'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '096770.KS', name: 'SK이노베이션', keywords: ['sk innovation'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '035900.KQ', name: 'JYP Ent.', keywords: ['jyp', 'jyp entertainment', '제이와이피'], currency: 'KRW', exchange: 'KOSDAQ' },
+  { symbol: '041510.KQ', name: '에스엠', keywords: ['sm entertainment', 'sm ent'], currency: 'KRW', exchange: 'KOSDAQ' },
+  { symbol: '091990.KQ', name: '셀트리온헬스케어', keywords: ['celltrion healthcare'], currency: 'KRW', exchange: 'KOSDAQ' },
+  { symbol: '247540.KQ', name: '에코프로비엠', keywords: ['ecopro bm'], currency: 'KRW', exchange: 'KOSDAQ' },
+  { symbol: '086520.KQ', name: '에코프로', keywords: ['ecopro'], currency: 'KRW', exchange: 'KOSDAQ' },
+  { symbol: '069500.KS', name: 'KODEX 200', keywords: ['kodex200', '코덱스200'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '360750.KS', name: 'TIGER 미국S&P500', keywords: ['tiger s&p500', 's&p500'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '379800.KS', name: 'KODEX 미국S&P500TR', keywords: ['kodex s&p500'], currency: 'KRW', exchange: 'KOSPI' },
+]
 
 function isLocalDev() {
   if (typeof window === 'undefined') return false
@@ -36,6 +64,15 @@ function yahooChartPath(symbol, options = {}) {
   return `/v8/finance/chart/${encodeURIComponent(symbol)}?${params.toString()}`
 }
 
+function yahooSearchPath(query, options = {}) {
+  const params = new URLSearchParams({
+    q: String(query || '').trim(),
+    quotesCount: String(options.limit || 8),
+    newsCount: '0',
+  })
+  return `/v1/finance/search?${params.toString()}`
+}
+
 function yahooChartUrl(symbol, options) {
   const path = yahooChartPath(symbol, options)
   if (isLocalDev()) return `/api/yahoo${path}`
@@ -43,6 +80,12 @@ function yahooChartUrl(symbol, options) {
   // GitHub Pages has no server-side proxy, and Yahoo's chart endpoint is not
   // browser-CORS friendly. Jina Reader gives static deployments a CORS-enabled
   // read-only pass-through while keeping the same Yahoo payload shape.
+  return `https://r.jina.ai/http://query1.finance.yahoo.com${path.replace(/&/g, '%26')}`
+}
+
+function yahooSearchUrl(query, options) {
+  const path = yahooSearchPath(query, options)
+  if (isLocalDev()) return `/api/yahoo${path}`
   return `https://r.jina.ai/http://query1.finance.yahoo.com${path.replace(/&/g, '%26')}`
 }
 
@@ -117,6 +160,90 @@ async function fetchYahooQuote(symbol, emptyMessage) {
   if (!symbol) throw new Error(emptyMessage)
 
   return quoteFromYahooData(await fetchJson(yahooChartUrl(symbol)), symbol)
+}
+
+function compactSearchText(value) {
+  return String(value || '').toLowerCase().replace(/[\s._-]+/g, '')
+}
+
+function hasKorean(value) {
+  return /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(String(value || ''))
+}
+
+function guessStockCurrency(symbol, exchange) {
+  const code = String(symbol || '').toUpperCase()
+  const exch = String(exchange || '').toUpperCase()
+  if (code.endsWith('.KS') || code.endsWith('.KQ') || ['KSC', 'KOSPI', 'KOSDAQ'].includes(exch)) return 'KRW'
+  if (code.endsWith('.T') || exch === 'JPX') return 'JPY'
+  if (code.endsWith('.DE') || code.endsWith('.PA')) return 'EUR'
+  return 'USD'
+}
+
+function normalizeSearchItem(item) {
+  const symbol = normalizeStockSymbol(item?.symbol)
+  if (!symbol) return null
+  const name = String(item?.name || item?.longname || item?.shortname || symbol).trim()
+  const exchange = String(item?.exchange || item?.exchDisp || '').trim()
+  const currency = normalizeCurrencyCode(item?.currency, guessStockCurrency(symbol, exchange))
+  return {
+    symbol,
+    name,
+    exchange,
+    type: String(item?.quoteType || item?.typeDisp || '').trim(),
+    currency,
+  }
+}
+
+function localStockSearch(query) {
+  const compact = compactSearchText(query)
+  const normalizedSymbol = normalizeStockSymbol(query)
+  if (!compact && !normalizedSymbol) return []
+
+  return STOCK_SEARCH_PRESETS.map((item) => ({
+    ...item,
+    type: 'EQUITY',
+    score:
+      item.symbol === normalizedSymbol
+        ? 0
+        : compactSearchText(item.name) === compact
+          ? 1
+          : item.symbol.startsWith(normalizedSymbol)
+            ? 2
+            : compactSearchText(item.name).includes(compact)
+              ? 3
+              : item.keywords.some((keyword) => compactSearchText(keyword).includes(compact))
+                ? 4
+                : 99,
+  }))
+    .filter((item) => item.score < 99)
+    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name, 'ko'))
+    .map(normalizeSearchItem)
+    .filter(Boolean)
+}
+
+async function yahooStockSearch(query, options = {}) {
+  const data = await fetchJson(yahooSearchUrl(query, options))
+  return (data?.quotes || [])
+    .filter((item) => ['EQUITY', 'ETF'].includes(String(item?.quoteType || '').toUpperCase()))
+    .map(normalizeSearchItem)
+    .filter(Boolean)
+}
+
+export async function fetchStockSearch(input, options = {}) {
+  const query = String(input || '').trim()
+  if (query.length < 2) return []
+
+  const local = localStockSearch(query)
+  const remote =
+    hasKorean(query) && local.length > 0
+      ? []
+      : await yahooStockSearch(query, { limit: options.limit || 8 }).catch(() => [])
+
+  const map = new Map()
+  ;[...local, ...remote].forEach((item) => {
+    if (!map.has(item.symbol)) map.set(item.symbol, item)
+  })
+  return [...map.values()].slice(0, options.limit || 8)
 }
 
 function historyFromYahooData(data, fallbackSymbol) {

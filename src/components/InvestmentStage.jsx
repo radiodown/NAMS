@@ -18,6 +18,7 @@ import {
   fetchExchangeRate,
   fetchStockHistory,
   fetchStockQuote,
+  fetchStockSearch,
   normalizeCurrencyCode,
   normalizeStockSymbol,
 } from '../lib/quotes'
@@ -330,6 +331,9 @@ export default function InvestmentStage({ investments }) {
   const [quoteStatus, setQuoteStatus] = useState({})
   const [activeStockId, setActiveStockId] = useState(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [stockSearch, setStockSearch] = useState({ state: 'idle', query: '', items: [], error: '' })
+  const [stockSearchOpen, setStockSearchOpen] = useState(false)
+  const [stockSearchLockedQuery, setStockSearchLockedQuery] = useState('')
 
   // rawItems feeds summarize/exchangeRateMap so legacy 환율 widgets keep
   // providing FX rates for stock conversion. 환율 items contribute 0 to totals
@@ -344,6 +348,47 @@ export default function InvestmentStage({ investments }) {
       setActiveStockId(null)
     }
   }, [activeStockId, items])
+
+  useEffect(() => {
+    if (form.kind !== '주식') {
+      setStockSearch({ state: 'idle', query: '', items: [], error: '' })
+      setStockSearchOpen(false)
+      return undefined
+    }
+
+    const query = form.name.trim()
+    if (query.length < 2 || query === stockSearchLockedQuery) {
+      setStockSearch((prev) =>
+        prev.query === query ? prev : { state: 'idle', query, items: [], error: '' }
+      )
+      return undefined
+    }
+
+    let cancelled = false
+    setStockSearch({ state: 'loading', query, items: [], error: '' })
+    const timer = window.setTimeout(async () => {
+      try {
+        const results = await fetchStockSearch(query, { limit: 7 })
+        if (cancelled) return
+        setStockSearch({ state: 'done', query, items: results, error: '' })
+        setStockSearchOpen(true)
+      } catch (error) {
+        if (cancelled) return
+        setStockSearch({
+          state: 'error',
+          query,
+          items: [],
+          error: error?.message || '검색 실패',
+        })
+        setStockSearchOpen(true)
+      }
+    }, 260)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [form.kind, form.name, stockSearchLockedQuery])
 
   const [draggingId, setDraggingId] = useState(null)
   const [dropId, setDropId] = useState(null)
@@ -448,6 +493,46 @@ export default function InvestmentStage({ investments }) {
 
   function selectKind(kind) {
     setForm((f) => ({ ...f, kind, color: defaultColor(kind) }))
+    setStockSearchLockedQuery('')
+    setStockSearchOpen(false)
+  }
+
+  function setStockName(value) {
+    setStockSearchLockedQuery('')
+    setStockSearchOpen(true)
+    set('name', value)
+  }
+
+  function applyStockSearchResult(result) {
+    const symbol = normalizeStockSymbol(result.symbol)
+    const name = result.name || symbol
+    const currency = normalizeCurrencyCode(result.currency, form.currency || 'KRW')
+    setForm((prev) => ({
+      ...prev,
+      name,
+      quoteSymbol: symbol,
+      currency,
+      quoteCurrency: currency,
+    }))
+    setStockSearchLockedQuery(name)
+    setStockSearchOpen(false)
+
+    fetchStockQuote(symbol)
+      .then((quote) => {
+        const quoteCurrency = normalizeCurrencyCode(quote.currency || currency, currency)
+        setForm((prev) =>
+          normalizeStockSymbol(prev.quoteSymbol) === symbol
+            ? {
+                ...prev,
+                quoteSymbol: quote.symbol || symbol,
+                currency: quoteCurrency,
+                quoteCurrency,
+                currentPrice: String(quote.price || ''),
+              }
+            : prev
+        )
+      })
+      .catch(() => {})
   }
 
   function submit(e) {
@@ -773,14 +858,55 @@ export default function InvestmentStage({ investments }) {
         <p className="invest-kind-desc">{INVEST_META[form.kind].desc}</p>
 
         <form className="invest-form" onSubmit={submit}>
-          <div className="field">
+          <div
+            className={`field${form.kind === '주식' ? ' stock-search-field' : ''}`}
+            onBlur={(e) => {
+              if (form.kind === '주식' && !e.currentTarget.contains(e.relatedTarget)) {
+                setStockSearchOpen(false)
+              }
+            }}
+          >
             <label>{nameLabel}</label>
             <input
               type="text"
               placeholder={form.kind === '주식' ? '예: 삼성전자' : '예: OO은행 정기예금'}
               value={form.name}
-              onChange={(e) => set('name', e.target.value)}
+              onFocus={() => {
+                if (form.kind === '주식' && stockSearch.items.length > 0) setStockSearchOpen(true)
+              }}
+              onChange={(e) =>
+                form.kind === '주식' ? setStockName(e.target.value) : set('name', e.target.value)
+              }
             />
+            {form.kind === '주식' &&
+              stockSearchOpen &&
+              stockSearch.query.trim().length >= 2 && (
+                <div className="stock-search-results">
+                  {stockSearch.state === 'loading' ? (
+                    <div className="stock-search-empty">종목 검색중</div>
+                  ) : stockSearch.items.length > 0 ? (
+                    stockSearch.items.map((result) => (
+                      <button
+                        type="button"
+                        className="stock-search-option"
+                        key={result.symbol}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => applyStockSearchResult(result)}
+                      >
+                        <b>{result.name}</b>
+                        <span>
+                          {result.symbol} · {result.exchange || result.type || '주식'} ·{' '}
+                          {result.currency || '통화'}
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="stock-search-empty">
+                      {stockSearch.state === 'error' ? stockSearch.error : '검색 결과 없음'}
+                    </div>
+                  )}
+                </div>
+              )}
           </div>
           <div className="field">
             <label>{dateLabel}</label>
