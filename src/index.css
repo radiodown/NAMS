@@ -5,6 +5,12 @@
   --text: #0f172a;
   --muted: #64748b;
   --border: #e2e8f0;
+  --input-bg: #f8fbff;
+  --input-bg-hover: #ffffff;
+  --input-bg-focus: #ffffff;
+  --input-border: #cbd5e1;
+  --input-border-hover: #94a3b8;
+  --input-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88), 0 1px 2px rgba(15, 23, 42, 0.04);
   --header-bg: rgba(241, 245, 249, 0.85);
   --theme-accent: #5865f2;
   --button-primary-bg: #0f172a;
@@ -20,6 +26,12 @@
   --text: #f2f3f5;
   --muted: #b5bac1;
   --border: #3f4147;
+  --input-bg: #26282e;
+  --input-bg-hover: #2b2d33;
+  --input-bg-focus: #2f3238;
+  --input-border: #565b66;
+  --input-border-hover: #747b88;
+  --input-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.16);
   --header-bg: rgba(30, 31, 34, 0.9);
   --theme-accent: #5865f2;
   --button-primary-bg: #5865f2;
@@ -5445,4 +5457,55 @@ td.memo {
   background: rgba(22, 163, 74, 0.16);
   border-color: rgba(22, 163, 74, 0.32);
   color: #86efac;
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+textarea,
+select,
+.picker-button,
+.calendar-button,
+.ledger-inline-input {
+  border-color: var(--input-border);
+  background: var(--input-bg);
+  box-shadow: var(--input-shadow);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):hover,
+textarea:hover,
+select:hover,
+.picker-button:hover,
+.calendar-button:hover,
+.ledger-inline-input:hover {
+  border-color: color-mix(in srgb, var(--accent, var(--theme-accent)) 18%, var(--input-border-hover));
+  background: var(--input-bg-hover);
+}
+
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):focus,
+textarea:focus,
+select:focus,
+.picker-button.open,
+.picker-button:focus,
+.calendar-button.open,
+.calendar-button:focus,
+.ledger-inline-input:focus {
+  border-color: var(--accent, var(--theme-accent));
+  background: var(--input-bg-focus);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent, var(--theme-accent)) 14%, transparent),
+    var(--input-shadow);
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled,
+.picker-button:disabled,
+.calendar-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+  background: color-mix(in srgb, var(--input-bg) 74%, var(--surface-2));
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
 }
