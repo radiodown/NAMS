@@ -3,12 +3,12 @@ import { useLedger } from './lib/useLedger'
 import { useFixedExpenses } from './lib/useFixedExpenses'
 import { useFixedIncomes } from './lib/useFixedIncomes'
 import { useInvestments } from './lib/useInvestments'
-import { useInvestmentSimulations } from './lib/useInvestmentSimulations'
+import { useMockInvestment } from './lib/useMockInvestment'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
 import { todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
-import { INVEST_SIM_COLOR } from './lib/investmentSimulation'
+import { MOCK_INVEST_COLOR } from './lib/mockInvestment'
 import {
   fixedExpenseEntriesForMonth,
   fixedExpenseEntriesFromRecords,
@@ -17,7 +17,7 @@ import {
 } from './lib/fixedExpenseEntries'
 import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
-import InvestmentSimulationStage from './components/InvestmentSimulationStage'
+import MockInvestmentStage from './components/MockInvestmentStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
 import IncomeManagementStage from './components/IncomeManagementStage'
 import SummaryStage from './components/SummaryStage'
@@ -52,7 +52,7 @@ const TAB_COLOR = {
   지출: STAGE_META.지출.color,
   '지출 관리': STAGE_META.지출.color,
   투자: INVEST_COLOR,
-  '투자 시뮬레이션': INVEST_SIM_COLOR,
+  모의투자: MOCK_INVEST_COLOR,
   그래프요약: SUMMARY_COLOR,
   연말정산: TAX_COLOR,
 }
@@ -69,7 +69,7 @@ export default function App() {
   const fixedIncome = useFixedIncomes()
   const fixed = useFixedExpenses()
   const invest = useInvestments()
-  const simulations = useInvestmentSimulations()
+  const mockInvest = useMockInvestment()
   const categoryStore = useCategories()
   const paymentMethods = usePaymentMethods()
   const { entries } = ledger
@@ -222,13 +222,13 @@ export default function App() {
       수입: 0,
       지출: 0,
       투자: invest.items.length,
-      '투자 시뮬레이션': simulations.items.length,
+      모의투자: mockInvest.portfolio.trades.length,
     }
     transactionEntries.forEach((e) => {
       if (e.type === '수입' || e.type === '지출') c[e.type] += 1
     })
     return c
-  }, [transactionEntries, invest.items, simulations.items])
+  }, [transactionEntries, invest.items, mockInvest.portfolio.trades.length])
 
   const visibleCount = stageConfig.filter((stage) => stage.visible).length
 
@@ -564,8 +564,8 @@ export default function App() {
           <SummaryStage entries={entriesWithCurrentFixed} investments={invest.items} />
         ) : tab === '투자' ? (
           <InvestmentStage investments={invest} />
-        ) : tab === '투자 시뮬레이션' ? (
-          <InvestmentSimulationStage investments={invest.items} simulations={simulations} />
+        ) : tab === '모의투자' ? (
+          <MockInvestmentStage mockInvest={mockInvest} />
         ) : tab === '수입 관리' ? (
           <IncomeManagementStage
             entries={transactionEntries}

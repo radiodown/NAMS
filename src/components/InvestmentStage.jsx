@@ -10,10 +10,10 @@ import {
   YAxis,
 } from 'recharts'
 import { INVEST_META, INVEST_KINDS } from '../lib/categories'
-import { TAX_BENEFIT_TAGS } from '../lib/schema'
+import { normalizeInvestmentTaxBenefit, taxBenefitOptionsForKind } from '../lib/schema'
 import { compactKRW, formatKRW, todayStr } from '../lib/format'
 import { exchangeRateMap, productMetrics, stockMetrics, summarize } from '../lib/investments'
-import { parseNumberInput } from '../lib/numberInput'
+import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
 import {
   fetchExchangeRate,
   fetchStockHistory,
@@ -50,6 +50,11 @@ const STOCK_CHART_RANGES = [
 ]
 const REPORT_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#0891b2', '#7c3aed']
 const STALE_QUOTE_MS = 1000 * 60 * 60 * 72
+const QUOTE_REFRESH_MS = 1000 * 60 * 10
+const QUOTE_STAGGER_MS = 1400
+const QUOTE_FRESH_MS = 1000 * 60 * 10
+const BITCOIN_SYMBOL = 'BTC-KRW'
+const ASSET_TYPE_OPTIONS = ['현금성자산', '금', '외화', '채권', '부동산', '기타']
 
 // Long-press duration before a touch becomes a widget drag, and how far the
 // finger may stray during that wait before it counts as a scroll instead.
@@ -58,7 +63,7 @@ const TOUCH_MOVE_CANCEL = 12
 
 const blankForm = (kind = '예금') => ({
   kind,
-  name: '',
+  name: kind === '비트코인' ? '비트코인' : '',
   date: todayStr(),
   memo: '',
   principal: '',
@@ -73,8 +78,13 @@ const blankForm = (kind = '예금') => ({
   addBuyPrice: '',
   currency: 'KRW',
   color: defaultColor(kind),
-  quoteSymbol: '',
+  quoteSymbol: kind === '비트코인' ? BITCOIN_SYMBOL : '',
   currentPrice: '',
+  bitcoinAmount: '',
+  bitcoinBuyPrice: '',
+  assetType: '',
+  assetValue: '',
+  assetCost: '',
   taxBenefit: '없음',
 })
 
@@ -92,11 +102,16 @@ function formFromProduct(p) {
     round: p.round === '' || p.round == null ? '' : String(p.round),
     shares: p.shares != null ? String(p.shares) : '',
     buyPrice: p.buyPrice != null ? String(p.buyPrice) : '',
+    bitcoinAmount: p.quantity != null ? String(p.quantity) : '',
+    bitcoinBuyPrice: p.kind === '비트코인' && p.buyPrice != null ? String(p.buyPrice) : '',
     currency: p.currency || p.quoteCurrency || 'KRW',
     color: p.color || defaultColor(p.kind),
-    quoteSymbol: p.quoteSymbol || '',
+    quoteSymbol: p.quoteSymbol || (p.kind === '비트코인' ? BITCOIN_SYMBOL : ''),
     currentPrice: p.currentPrice != null ? String(p.currentPrice) : '',
-    taxBenefit: p.taxBenefit && TAX_BENEFIT_TAGS.includes(p.taxBenefit) ? p.taxBenefit : '없음',
+    assetType: p.assetType || '',
+    assetValue: p.assetValue != null ? String(p.assetValue) : '',
+    assetCost: p.assetCost != null ? String(p.assetCost) : '',
+    taxBenefit: normalizeInvestmentTaxBenefit(p.kind, p.taxBenefit),
   }
 }
 
@@ -141,6 +156,50 @@ function riskLevel(level) {
 function isQuoteStale(time) {
   const ts = Date.parse(time)
   return Number.isFinite(ts) && Date.now() - ts > STALE_QUOTE_MS
+}
+
+const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+function isQuoteFresh(time) {
+  const ts = Date.parse(time)
+  return Number.isFinite(ts) && Date.now() - ts < QUOTE_FRESH_MS
+}
+
+function quoteSymbolForProduct(product) {
+  if (product?.kind === '비트코인') return product.quoteSymbol || BITCOIN_SYMBOL
+  return product?.quoteSymbol || product?.symbol || ''
+}
+
+function hasLiveQuote(product) {
+  return (product?.kind === '주식' || product?.kind === '비트코인') && quoteSymbolForProduct(product)
+}
+
+function isBitcoinText(value) {
+  return /비트코인|bitcoin|btc/i.test(String(value || ''))
+}
+
+function compactLookupText(value) {
+  return String(value || '').toLowerCase().replace(/[^0-9a-z가-힣]+/g, '')
+}
+
+function chooseStockLookupResult(query, results) {
+  const items = results || []
+  if (items.length === 0) return null
+  const normalizedQuery = normalizeStockSymbol(query)
+  const symbolMatch = items.find((item) => normalizeStockSymbol(item.symbol) === normalizedQuery)
+  if (symbolMatch) return symbolMatch
+
+  const compactQuery = compactLookupText(query)
+  const nameMatch = items.find((item) => compactLookupText(item.name) === compactQuery)
+  if (nameMatch) return nameMatch
+
+  return items.length === 1 ? items[0] : null
+}
+
+function needsQuoteRefresh(product) {
+  if (!isQuoteFresh(product?.quoteTime)) return true
+  const currency = normalizeCurrencyCode(product?.currency || product?.quoteCurrency, 'KRW')
+  return currency !== 'KRW' && !isQuoteFresh(product?.exchangeRateTime)
 }
 
 function groupedBy(positions, total, keyFn) {
@@ -334,6 +393,7 @@ export default function InvestmentStage({ investments }) {
   const [stockSearch, setStockSearch] = useState({ state: 'idle', query: '', items: [], error: '' })
   const [stockSearchOpen, setStockSearchOpen] = useState(false)
   const [stockSearchLockedQuery, setStockSearchLockedQuery] = useState('')
+  const stockSymbolLookupRef = useRef('')
 
   // rawItems feeds summarize/exchangeRateMap so legacy 환율 widgets keep
   // providing FX rates for stock conversion. 환율 items contribute 0 to totals
@@ -371,6 +431,8 @@ export default function InvestmentStage({ investments }) {
         const results = await fetchStockSearch(query, { limit: 7 })
         if (cancelled) return
         setStockSearch({ state: 'done', query, items: results, error: '' })
+        const autoResult = chooseStockLookupResult(query, results)
+        if (autoResult) applyStockLookupResult(autoResult)
         setStockSearchOpen(true)
       } catch (error) {
         if (cancelled) return
@@ -389,6 +451,29 @@ export default function InvestmentStage({ investments }) {
       window.clearTimeout(timer)
     }
   }, [form.kind, form.name, stockSearchLockedQuery])
+
+  useEffect(() => {
+    if (form.kind !== '주식') return undefined
+    const raw = form.quoteSymbol.trim()
+    if (raw.length < 2) return undefined
+    const normalized = normalizeStockSymbol(raw)
+    if (!normalized) return undefined
+    if (stockSymbolLookupRef.current === normalized && form.name.trim()) return undefined
+
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      stockSymbolLookupRef.current = normalized
+      const results = await fetchStockSearch(raw, { limit: 7 }).catch(() => [])
+      if (cancelled) return
+      const match = chooseStockLookupResult(normalized, results) || chooseStockLookupResult(raw, results)
+      if (match) applyStockLookupResult(match, { lockName: true })
+    }, 420)
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [form.kind, form.quoteSymbol, form.name])
 
   const [draggingId, setDraggingId] = useState(null)
   const [dropId, setDropId] = useState(null)
@@ -411,78 +496,87 @@ export default function InvestmentStage({ investments }) {
   const quoteKey = useMemo(
     () =>
       items
-        .filter((p) => p.kind === '주식' && (p.quoteSymbol || p.symbol))
+        .filter(hasLiveQuote)
         .map(
           (p) =>
-            `${p.id}:STOCK:${p.quoteSymbol || p.symbol}:${p.currency || p.quoteCurrency || ''}`
+            `${p.id}:${p.kind}:${quoteSymbolForProduct(p)}:${p.currency || p.quoteCurrency || ''}`
         )
         .join('|'),
     [items]
   )
 
   useEffect(() => {
-    const quoteItems = items.filter((p) => p.kind === '주식' && (p.quoteSymbol || p.symbol))
+    const quoteItems = items.filter(hasLiveQuote)
     if (quoteItems.length === 0) return
 
     let cancelled = false
+
+    async function fetchQuoteItem(p) {
+      try {
+        const quote = await fetchStockQuote(quoteSymbolForProduct(p))
+        const currency = normalizeCurrencyCode(quote.currency || p.currency || p.quoteCurrency, 'KRW')
+        if (currency === 'KRW') return { p, quote, currency }
+
+        try {
+          const exchangeQuote = await fetchExchangeRate(currency, 'KRW')
+          return { p, quote, currency, exchangeQuote }
+        } catch (exchangeError) {
+          return { p, quote, currency, exchangeError }
+        }
+      } catch (error) {
+        return { p, error }
+      }
+    }
+
+    function applyQuoteResult({ p, quote, currency, exchangeQuote, exchangeError, error }) {
+      setQuoteStatus((prev) => ({
+        ...prev,
+        [p.id]: quote
+          ? exchangeError
+            ? { state: 'error', text: '환율 실패' }
+            : { state: 'ok', text: '갱신됨' }
+          : { state: 'error', text: error?.message || '조회 실패' },
+      }))
+
+      if (!quote) return
+      updateItem(p.id, {
+        currentPrice: quote.price,
+        currency,
+        quoteSymbol: quote.symbol || quoteSymbolForProduct(p),
+        quoteCurrency: currency || quote.currency,
+        quoteTime: quote.time,
+        ...(exchangeQuote
+          ? { exchangeRate: exchangeQuote.price, exchangeRateTime: exchangeQuote.time }
+          : {}),
+      })
+    }
+
     async function refreshQuotes() {
       setQuoteStatus((prev) => {
         const next = { ...prev }
         quoteItems.forEach((p) => {
-          next[p.id] = { state: 'loading', text: '조회중' }
+          if (!needsQuoteRefresh(p)) next[p.id] = { state: 'ok', text: '최근' }
         })
         return next
       })
 
-      const results = await Promise.all(
-        quoteItems.map(async (p) => {
-          try {
-            const quote = await fetchStockQuote(p.quoteSymbol || p.symbol)
-            const currency = normalizeCurrencyCode(quote.currency || p.currency || p.quoteCurrency, 'KRW')
-            if (currency === 'KRW') return { p, quote, currency }
-
-            try {
-              const exchangeQuote = await fetchExchangeRate(currency, 'KRW')
-              return { p, quote, currency, exchangeQuote }
-            } catch (exchangeError) {
-              return { p, quote, currency, exchangeError }
-            }
-          } catch (error) {
-            return { p, error }
-          }
-        })
-      )
-      if (cancelled) return
-
-      setQuoteStatus((prev) => {
-        const next = { ...prev }
-        results.forEach(({ p, quote, error, exchangeError }) => {
-          next[p.id] = quote
-            ? exchangeError
-              ? { state: 'error', text: '환율 실패' }
-              : { state: 'ok', text: '실시간' }
-            : { state: 'error', text: error?.message || '조회 실패' }
-        })
-        return next
-      })
-
-      results.forEach(({ p, quote, currency, exchangeQuote }) => {
-        if (!quote) return
-        updateItem(p.id, {
-          currentPrice: quote.price,
-          currency,
-          quoteSymbol: quote.symbol,
-          quoteCurrency: currency || quote.currency,
-          quoteTime: quote.time,
-          ...(exchangeQuote
-            ? { exchangeRate: exchangeQuote.price, exchangeRateTime: exchangeQuote.time }
-            : {}),
-        })
-      })
+      const targets = quoteItems.filter(needsQuoteRefresh)
+      for (let index = 0; index < targets.length; index += 1) {
+        const p = targets[index]
+        if (cancelled) return
+        setQuoteStatus((prev) => ({
+          ...prev,
+          [p.id]: { state: 'loading', text: '조회중' },
+        }))
+        const result = await fetchQuoteItem(p)
+        if (cancelled) return
+        applyQuoteResult(result)
+        if (index < targets.length - 1) await wait(QUOTE_STAGGER_MS)
+      }
     }
 
     refreshQuotes()
-    const timer = window.setInterval(refreshQuotes, 60000)
+    const timer = window.setInterval(refreshQuotes, QUOTE_REFRESH_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)
@@ -492,36 +586,64 @@ export default function InvestmentStage({ investments }) {
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
   function selectKind(kind) {
-    setForm((f) => ({ ...f, kind, color: defaultColor(kind) }))
+    setForm((f) => ({
+      ...f,
+      kind,
+      name: kind === '비트코인' ? '비트코인' : f.kind === '비트코인' ? '' : f.name,
+      color: defaultColor(kind),
+      currency: kind === '비트코인' || f.kind === '비트코인' ? 'KRW' : f.currency,
+      quoteSymbol: kind === '비트코인' ? BITCOIN_SYMBOL : f.kind === '비트코인' ? '' : f.quoteSymbol,
+      currentPrice: kind === '비트코인' || f.kind === '비트코인' ? '' : f.currentPrice,
+      bitcoinAmount: kind === '비트코인' ? f.bitcoinAmount : '',
+      bitcoinBuyPrice: kind === '비트코인' ? f.bitcoinBuyPrice : '',
+      taxBenefit: normalizeInvestmentTaxBenefit(kind, f.taxBenefit),
+    }))
     setStockSearchLockedQuery('')
     setStockSearchOpen(false)
   }
 
   function setStockName(value) {
     setStockSearchLockedQuery('')
+    stockSymbolLookupRef.current = ''
     setStockSearchOpen(true)
     set('name', value)
   }
 
-  function applyStockSearchResult(result) {
+  function applyStockLookupResult(result, { lockName = false, fetchQuote = false } = {}) {
     const symbol = normalizeStockSymbol(result.symbol)
+    if (!symbol) return
     const name = result.name || symbol
-    const currency = normalizeCurrencyCode(result.currency, form.currency || 'KRW')
-    setForm((prev) => ({
-      ...prev,
-      name,
-      quoteSymbol: symbol,
-      currency,
-      quoteCurrency: currency,
-    }))
-    setStockSearchLockedQuery(name)
-    setStockSearchOpen(false)
+    setForm((prev) => {
+      if (prev.kind !== '주식') return prev
+      const currency = normalizeCurrencyCode(result.currency, prev.currency || 'KRW')
+      return {
+        ...prev,
+        name:
+          lockName ||
+          !prev.name.trim() ||
+          normalizeStockSymbol(prev.name) === symbol ||
+          compactLookupText(prev.name) === compactLookupText(prev.quoteSymbol)
+            ? name
+            : prev.name,
+        quoteSymbol: symbol,
+        currency,
+        quoteCurrency: currency,
+        ...(result.currentPrice ? { currentPrice: String(result.currentPrice) } : {}),
+      }
+    })
+    stockSymbolLookupRef.current = symbol
+    if (lockName) {
+      setStockSearchLockedQuery(name)
+      setStockSearchOpen(false)
+    }
 
+    if (!fetchQuote) return
+    const currency = normalizeCurrencyCode(result.currency, form.currency || 'KRW')
     fetchStockQuote(symbol)
       .then((quote) => {
         const quoteCurrency = normalizeCurrencyCode(quote.currency || currency, currency)
         setForm((prev) =>
-          normalizeStockSymbol(prev.quoteSymbol) === symbol
+          prev.kind === '주식' && normalizeStockSymbol(prev.quoteSymbol) === symbol
             ? {
                 ...prev,
                 quoteSymbol: quote.symbol || symbol,
@@ -535,17 +657,33 @@ export default function InvestmentStage({ investments }) {
       .catch(() => {})
   }
 
+  function applyStockSearchResult(result) {
+    const name = result.name || normalizeStockSymbol(result.symbol)
+    applyStockLookupResult(result, { lockName: true, fetchQuote: true })
+    setStockSearchLockedQuery(name)
+    setStockSearchOpen(false)
+  }
+
   function submit(e) {
     e.preventDefault()
     const { kind } = form
     if (!form.name.trim()) {
-      alert(kind === '주식' ? '종목명을 입력하세요.' : '상품명을 입력하세요.')
+      alert(
+        kind === '주식'
+          ? '종목명을 입력하세요.'
+          : kind === '비트코인'
+            ? '코인명을 입력하세요.'
+            : kind === '자산'
+              ? '자산명을 입력하세요.'
+              : '상품명을 입력하세요.'
+      )
       return
     }
     if (!form.date) {
       alert('날짜를 입력하세요.')
       return
     }
+    const taxBenefit = normalizeInvestmentTaxBenefit(kind, form.taxBenefit)
     let product
     if (kind === '예금') {
       const principal = parseNumberInput(form.principal)
@@ -562,7 +700,7 @@ export default function InvestmentStage({ investments }) {
         rate: parseNumberInput(form.rate) || 0,
         months,
         method: form.method,
-        taxBenefit: form.taxBenefit || '없음',
+        taxBenefit,
       }
     } else if (kind === '적금') {
       const monthly = parseNumberInput(form.monthly)
@@ -582,7 +720,45 @@ export default function InvestmentStage({ investments }) {
         months,
         method: form.method,
         round,
-        taxBenefit: form.taxBenefit || '없음',
+        taxBenefit,
+      }
+    } else if (kind === '비트코인') {
+      const quantity = parseNumberInput(form.bitcoinAmount)
+      const buyPrice = parseAmountInput(form.bitcoinBuyPrice)
+      const currentPrice = form.currentPrice === '' ? buyPrice : parseAmountInput(form.currentPrice)
+      if (!quantity || quantity <= 0) return alert('보유 수량을 입력하세요.')
+      if (!buyPrice || buyPrice <= 0) return alert('평균 매수가를 입력하세요.')
+      product = {
+        kind,
+        name: form.name.trim(),
+        date: form.date,
+        memo: form.memo.trim(),
+        color: form.color || defaultColor(kind),
+        quantity,
+        buyPrice,
+        currency: 'KRW',
+        quoteSymbol: BITCOIN_SYMBOL,
+        quoteCurrency: 'KRW',
+        currentPrice,
+        taxBenefit,
+      }
+    } else if (kind === '자산') {
+      const assetValue = parseAmountInput(form.assetValue)
+      const assetCost = form.assetCost === '' ? assetValue : parseAmountInput(form.assetCost)
+      if (isBitcoinText(form.name) || isBitcoinText(form.assetType)) {
+        return alert('비트코인은 비트코인 탭에서 추가하세요.')
+      }
+      if (!assetValue || assetValue <= 0) return alert('현재 평가액을 입력하세요.')
+      product = {
+        kind,
+        name: form.name.trim(),
+        date: form.date,
+        memo: form.memo.trim(),
+        color: form.color || defaultColor(kind),
+        assetType: form.assetType.trim() || '기타',
+        assetValue,
+        assetCost,
+        taxBenefit,
       }
     } else {
       const shares = parseNumberInput(form.shares)
@@ -613,7 +789,7 @@ export default function InvestmentStage({ investments }) {
         quoteSymbol,
         quoteCurrency: currency,
         currentPrice: form.currentPrice === '' ? nextBuyPrice : parseNumberInput(form.currentPrice),
-        taxBenefit: form.taxBenefit || '없음',
+        taxBenefit,
       }
     }
     if (editingId) {
@@ -793,10 +969,21 @@ export default function InvestmentStage({ investments }) {
     }
   }, [])
 
-  const nameLabel = form.kind === '주식' ? '종목명' : '상품명'
-  const dateLabel = form.kind === '예금' ? '가입일' : form.kind === '적금' ? '시작일' : '매수일'
+  const nameLabel =
+    form.kind === '주식' ? '종목명' : form.kind === '비트코인' ? '코인명' : form.kind === '자산' ? '자산명' : '상품명'
+  const namePlaceholder =
+    form.kind === '주식'
+      ? '예: 삼성전자'
+      : form.kind === '비트코인'
+        ? '비트코인'
+      : form.kind === '자산'
+        ? '예: 금 10g, 외화 예치금, 파킹통장'
+        : '예: OO은행 정기예금'
+  const dateLabel = form.kind === '예금' ? '가입일' : form.kind === '적금' ? '시작일' : form.kind === '자산' ? '평가기준일' : '매수일'
   const stockBuyPreview = form.kind === '주식' ? additionalBuyPreview(form) : null
   const savingsPreview = form.kind === '적금' ? savingsPreviewFromForm(form, today) : null
+  const taxBenefitOptions = taxBenefitOptionsForKind(form.kind)
+  const activeTaxBenefit = normalizeInvestmentTaxBenefit(form.kind, form.taxBenefit)
 
   return (
     <div className="stage" style={{ '--accent': INVEST_META[form.kind].color }}>
@@ -869,7 +1056,7 @@ export default function InvestmentStage({ investments }) {
             <label>{nameLabel}</label>
             <input
               type="text"
-              placeholder={form.kind === '주식' ? '예: 삼성전자' : '예: OO은행 정기예금'}
+              placeholder={namePlaceholder}
               value={form.name}
               onFocus={() => {
                 if (form.kind === '주식' && stockSearch.items.length > 0) setStockSearchOpen(true)
@@ -1017,12 +1204,15 @@ export default function InvestmentStage({ investments }) {
                 />
               </div>
               <div className="field">
-                <label>종목 코드/티커</label>
+                <label>종목 코드/고유번호/티커</label>
                 <input
                   type="text"
-                  placeholder="예: 005930, 091990.KQ, AAPL"
+                  placeholder="예: 005930, 0183J0, AAPL"
                   value={form.quoteSymbol}
-                  onChange={(e) => set('quoteSymbol', e.target.value)}
+                  onChange={(e) => {
+                    stockSymbolLookupRef.current = ''
+                    set('quoteSymbol', e.target.value)
+                  }}
                 />
               </div>
               <div className="field">
@@ -1075,6 +1265,85 @@ export default function InvestmentStage({ investments }) {
             </>
           )}
 
+          {form.kind === '비트코인' && (
+            <>
+              <div className="field">
+                <label>보유 수량 (BTC)</label>
+                <NumberInput
+                  min="0"
+                  step="any"
+                  placeholder="예: 0.05"
+                  value={form.bitcoinAmount}
+                  onChange={(value) => set('bitcoinAmount', value)}
+                />
+              </div>
+              <div className="field">
+                <label>평균 매수가 (원/BTC)</label>
+                <NumberInput
+                  amount
+                  min="0"
+                  decimal={false}
+                  placeholder="예: 9,000만원"
+                  value={form.bitcoinBuyPrice}
+                  onChange={(value) => set('bitcoinBuyPrice', value)}
+                />
+              </div>
+              <div className="field">
+                <label>현재 BTC 가격 (원)</label>
+                <NumberInput
+                  amount
+                  min="0"
+                  decimal={false}
+                  placeholder="저장 후 자동 조회"
+                  value={form.currentPrice}
+                  onChange={(value) => set('currentPrice', value)}
+                />
+              </div>
+            </>
+          )}
+
+          {form.kind === '자산' && (
+            <>
+              <div className="field">
+                <label>자산 종류</label>
+                <input
+                  type="text"
+                  list="invest-asset-type-options"
+                  placeholder="예: 현금성자산, 금, 외화"
+                  value={form.assetType}
+                  onChange={(e) => set('assetType', e.target.value)}
+                />
+                <datalist id="invest-asset-type-options">
+                  {ASSET_TYPE_OPTIONS.map((option) => (
+                    <option value={option} key={option} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="field">
+                <label>현재 평가액 (원)</label>
+                <NumberInput
+                  amount
+                  min="0"
+                  decimal={false}
+                  placeholder="예: 500만원"
+                  value={form.assetValue}
+                  onChange={(value) => set('assetValue', value)}
+                />
+              </div>
+              <div className="field">
+                <label>취득원가 (원)</label>
+                <NumberInput
+                  amount
+                  min="0"
+                  decimal={false}
+                  placeholder="미입력 시 현재 평가액"
+                  value={form.assetCost}
+                  onChange={(value) => set('assetCost', value)}
+                />
+              </div>
+            </>
+          )}
+
           {(form.kind === '예금' || form.kind === '적금') && (
             <div className="field">
               <label>이자 방식</label>
@@ -1100,11 +1369,11 @@ export default function InvestmentStage({ investments }) {
           <div className="field field-wide">
             <label>연말정산 세제혜택</label>
             <div className="seg seg-sm tax-benefit-seg">
-              {TAX_BENEFIT_TAGS.map((tag) => (
+              {taxBenefitOptions.map((tag) => (
                 <button
                   type="button"
                   key={tag}
-                  className={form.taxBenefit === tag ? 'on' : ''}
+                  className={activeTaxBenefit === tag ? 'on' : ''}
                   onClick={() => set('taxBenefit', tag)}
                 >
                   {tag}
@@ -1192,7 +1461,7 @@ export default function InvestmentStage({ investments }) {
       {items.length === 0 ? (
         <div className="invest-empty-widget">
           <strong>등록된 투자 위젯 없음</strong>
-          <span>+ 버튼으로 예금, 적금, 주식을 추가하세요.</span>
+          <span>+ 버튼으로 예금, 적금, 주식, 비트코인, 자산을 추가하세요.</span>
         </div>
       ) : (
         <div className="invest-widget-grid">
@@ -1400,8 +1669,8 @@ function ProductCard({
   const color = p.color || INVEST_META[p.kind].color
   const m = productMetrics(p, today, rates)
   const status =
-    p.kind === '주식' || p.kind === '환율'
-      ? quoteStatus || { state: 'idle', text: p.kind === '환율' || p.quoteSymbol ? '대기' : '코드 없음' }
+    p.kind === '주식' || p.kind === '비트코인' || p.kind === '환율'
+      ? quoteStatus || { state: 'idle', text: p.kind === '환율' || quoteSymbolForProduct(p) ? '대기' : '코드 없음' }
       : null
   let kindDetail = ''
   let profitText = `수익 ${signedKRW(m.profit)}`
@@ -1412,6 +1681,12 @@ function ProductCard({
     kindDetail = `예금 · ${m.elapsed}/${m.months}개월`
   } else if (p.kind === '적금') {
     kindDetail = `적금 · ${m.round}/${m.totalRounds}회차`
+  } else if (p.kind === '비트코인') {
+    kindDetail = `${m.quantity.toLocaleString('ko-KR', { maximumFractionDigits: 8 })} BTC · 현재 ${formatKRW(m.currentPrice)}`
+    profitText = `${signedKRW(m.profit)} (${m.returnPct >= 0 ? '+' : ''}${m.returnPct.toFixed(2)}%)`
+  } else if (p.kind === '자산') {
+    kindDetail = `${m.assetType || '기타'} · ${p.date}`
+    profitText = `평가손익 ${signedKRW(m.profit)}`
   } else if (p.kind === '환율') {
     kindDetail = `${m.baseCurrency}/${m.targetCurrency} · ${formatRate(m.rate)}`
     profitText = `1 ${m.baseCurrency} = ${formatRate(m.rate)} ${m.targetCurrency}`
@@ -1701,11 +1976,11 @@ function RepresentativeFXCard() {
         <div className="label">
           {active ? `${active.label} (${active.base}/${active.target})` : '대표 환율'}
         </div>
-        <div className="value">
+        <div className="value fx-rate-value">
           {active ? (
             <>
-              {formatRate(active.price)}
-              <span className={`month-change ${tone}`}>
+              <span>{formatRate(active.price)}</span>
+              <span className={`month-change fx-rate-change ${tone}`}>
                 ({mark} {Math.abs(change).toFixed(2)}%)
               </span>
             </>

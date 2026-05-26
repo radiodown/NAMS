@@ -23,7 +23,7 @@ const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
   '#8b5cf6', '#14b8a6', '#f97316', '#84cc16', '#06b6d4', '#a855f7',
 ]
-const KIND_COLORS = { 예금: '#0891b2', 적금: '#4f46e5', 주식: '#d97706', 환율: '#059669' }
+const KIND_COLORS = { 예금: '#0891b2', 적금: '#4f46e5', 주식: '#d97706', 비트코인: '#f97316', 자산: '#0f766e', 환율: '#059669' }
 const HORIZONS = [
   { label: '1년', months: 12 },
   { label: '3년', months: 36 },
@@ -109,7 +109,7 @@ export default function SummaryStage({ entries, investments }) {
 
   const pieData = useMemo(() => {
     if (pieType === '투자') {
-      return ['예금', '적금', '주식']
+      return ['예금', '적금', '주식', '비트코인', '자산']
         .map((k) => ({ name: k, value: invest.byKind[k] || 0 }))
         .filter((d) => d.value > 0)
     }
@@ -160,7 +160,7 @@ export default function SummaryStage({ entries, investments }) {
               <div>
                 <h3 className="future-title">미래 자산 추이</h3>
                 <p className="sub">
-                  현금은 고정, 예금 · 적금은 이율로 증가, 주식은 현재가로 합산
+                  현금은 고정, 예금 · 적금은 이율로 증가, 주식 · 비트코인 · 자산은 현재가로 합산
                 </p>
               </div>
               <div className="toggle">
@@ -177,7 +177,7 @@ export default function SummaryStage({ entries, investments }) {
             </div>
             {investments.length === 0 ? (
               <div className="empty" style={{ padding: '48px 10px' }}>
-                투자 탭에서 예금 · 적금 · 주식 상품을 추가하면 미래 자산 추이가 표시됩니다.
+                투자 탭에서 예금 · 적금 · 주식 · 비트코인 · 자산을 추가하면 미래 자산 추이가 표시됩니다.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={320}>
@@ -196,6 +196,8 @@ export default function SummaryStage({ entries, investments }) {
                   <Area type="monotone" dataKey="예금" stackId="a" stroke="#0891b2" fill="#67e8f9" />
                   <Area type="monotone" dataKey="적금" stackId="a" stroke="#4f46e5" fill="#a5b4fc" />
                   <Area type="monotone" dataKey="주식" stackId="a" stroke="#d97706" fill="#fcd34d" />
+                  <Area type="monotone" dataKey="비트코인" stackId="a" stroke="#f97316" fill="#fdba74" />
+                  <Area type="monotone" dataKey="자산" stackId="a" stroke="#0f766e" fill="#5eead4" />
                 </AreaChart>
               </ResponsiveContainer>
             )}

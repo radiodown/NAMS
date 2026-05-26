@@ -3,7 +3,7 @@
 // shape stays consistent.
 import { STAGE_META } from './categories'
 import { createId } from './id'
-import { normalizeSimulationScenario } from './investmentSimulation'
+import { normalizeMockPortfolio } from './mockInvestment'
 import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
 
 export const SCHEMA_VERSION = 1
@@ -17,7 +17,7 @@ export const STAGE_TABS = [
   '그래프요약',
   '투자',
   '연말정산',
-  '투자 시뮬레이션',
+  '모의투자',
 ]
 
 const DEFAULT_VISIBLE_STAGES = new Set([
@@ -32,6 +32,14 @@ const DEFAULT_VISIBLE_STAGES = new Set([
 
 // Tax-benefit tags an investment product can claim. Drives 연말정산 stage matching.
 export const TAX_BENEFIT_TAGS = ['없음', 'ISA', '연금저축', 'IRP', '주택청약', '청년도약계좌']
+export const INVEST_TAX_BENEFIT_OPTIONS = {
+  예금: ['없음'],
+  적금: ['없음', '주택청약', '청년도약계좌'],
+  주식: ['없음', 'ISA', '연금저축', 'IRP'],
+  비트코인: ['없음'],
+  자산: ['없음'],
+  환율: ['없음'],
+}
 
 // --- scalar coercion --------------------------------------------------------
 const str = (v) => String(v ?? '').trim()
@@ -75,7 +83,7 @@ export function normalizeEntry(entry) {
 }
 
 // --- investments ------------------------------------------------------------
-const INVEST_KINDS = ['예금', '적금', '주식', '환율']
+const INVEST_KINDS = ['예금', '적금', '주식', '비트코인', '자산', '환율']
 
 function currencyCode(value, fallback = 'KRW') {
   const code = str(value || fallback).toUpperCase().replace(/[^A-Z]/g, '')
@@ -87,6 +95,15 @@ function normalizeTaxBenefit(value) {
   return TAX_BENEFIT_TAGS.includes(tag) ? tag : '없음'
 }
 
+export function taxBenefitOptionsForKind(kind) {
+  return INVEST_TAX_BENEFIT_OPTIONS[str(kind)] || ['없음']
+}
+
+export function normalizeInvestmentTaxBenefit(kind, value) {
+  const tag = normalizeTaxBenefit(value)
+  return taxBenefitOptionsForKind(kind).includes(tag) ? tag : '없음'
+}
+
 export function normalizeInvestment(product) {
   const kind = INVEST_KINDS.includes(str(product?.kind)) ? str(product.kind) : '예금'
   const base = {
@@ -96,7 +113,7 @@ export function normalizeInvestment(product) {
     date: str(product?.date),
     memo: str(product?.memo),
     color: str(product?.color),
-    taxBenefit: normalizeTaxBenefit(product?.taxBenefit),
+    taxBenefit: normalizeInvestmentTaxBenefit(kind, product?.taxBenefit),
   }
   if (kind === '주식') {
     return {
@@ -112,6 +129,18 @@ export function normalizeInvestment(product) {
       exchangeRateTime: str(product?.exchangeRateTime),
     }
   }
+  if (kind === '비트코인') {
+    return {
+      ...base,
+      quantity: num(product?.quantity ?? product?.bitcoinAmount ?? product?.btcAmount ?? product?.shares),
+      buyPrice: num(product?.buyPrice ?? product?.bitcoinBuyPrice),
+      currency: 'KRW',
+      quoteSymbol: str(product?.quoteSymbol || product?.symbol) || 'BTC-KRW',
+      quoteCurrency: 'KRW',
+      quoteTime: str(product?.quoteTime),
+      currentPrice: num(product?.currentPrice),
+    }
+  }
   if (kind === '환율') {
     const baseCurrency = currencyCode(product?.baseCurrency || product?.currency || product?.name, 'USD')
     const targetCurrency = currencyCode(product?.targetCurrency, 'KRW')
@@ -123,6 +152,16 @@ export function normalizeInvestment(product) {
       quoteSymbol: str(product?.quoteSymbol),
       currentRate: num(product?.currentRate || product?.rate),
       quoteTime: str(product?.quoteTime),
+    }
+  }
+  if (kind === '자산') {
+    const assetValue = num(product?.assetValue ?? product?.currentValue ?? product?.value)
+    const assetCost = num(product?.assetCost ?? product?.cost ?? assetValue)
+    return {
+      ...base,
+      assetType: str(product?.assetType) || '기타',
+      assetValue,
+      assetCost,
     }
   }
   const interest = {
@@ -304,7 +343,8 @@ export function buildDefaultDoc() {
         entries: [],
         fixed: { templates: [], records: [], closedMonths: [], lastActiveMonth: '' },
       },
-      investment: { products: [], simulations: [] },
+      investment: { products: [] },
+      mockInvest: { portfolio: normalizeMockPortfolio({}) },
     },
   }
 }
@@ -364,7 +404,9 @@ export function normalizeDoc(raw) {
       },
       investment: {
         products: arr(investment.products).map(normalizeInvestment),
-        simulations: arr(investment.simulations).map(normalizeSimulationScenario),
+      },
+      mockInvest: {
+        portfolio: normalizeMockPortfolio(source.stages?.mockInvest?.portfolio),
       },
     },
   }

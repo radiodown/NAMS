@@ -2,6 +2,7 @@ export function normalizeStockSymbol(value) {
   const symbol = String(value || '').trim().toUpperCase().replace(/\s+/g, '')
   if (!symbol) return ''
   if (/^\d{6}$/.test(symbol)) return `${symbol}.KS`
+  if (/^\d[0-9A-Z]{5}$/.test(symbol)) return `${symbol}.KS`
   return symbol
 }
 
@@ -19,6 +20,8 @@ export function normalizeExchangeSymbol(base, target = 'KRW') {
 
 const QUOTE_TIMEOUT_MS = 12000
 const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
+const NAVER_ETF_PAGE_SIZE = 100
+const NAVER_ETF_MAX_PAGES = 15
 const STOCK_SEARCH_PRESETS = [
   { symbol: '005930.KS', name: '삼성전자', keywords: ['samsung', 'samsung electronics'], currency: 'KRW', exchange: 'KOSPI' },
   { symbol: '000660.KS', name: 'SK하이닉스', keywords: ['sk hynix', '하이닉스'], currency: 'KRW', exchange: 'KOSPI' },
@@ -43,17 +46,18 @@ const STOCK_SEARCH_PRESETS = [
   { symbol: '091990.KQ', name: '셀트리온헬스케어', keywords: ['celltrion healthcare'], currency: 'KRW', exchange: 'KOSDAQ' },
   { symbol: '247540.KQ', name: '에코프로비엠', keywords: ['ecopro bm'], currency: 'KRW', exchange: 'KOSDAQ' },
   { symbol: '086520.KQ', name: '에코프로', keywords: ['ecopro'], currency: 'KRW', exchange: 'KOSDAQ' },
-  { symbol: '069500.KS', name: 'KODEX 200', keywords: ['kodex200', '코덱스200'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '360750.KS', name: 'TIGER 미국S&P500', keywords: ['tiger s&p500', 's&p500'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '379800.KS', name: 'KODEX 미국S&P500TR', keywords: ['kodex s&p500'], currency: 'KRW', exchange: 'KOSPI' },
+  { symbol: '069500.KS', name: 'KODEX 200', keywords: ['kodex200', '코덱스200'], currency: 'KRW', exchange: 'KOSPI', type: 'ETF' },
+  { symbol: '360750.KS', name: 'TIGER 미국S&P500', keywords: ['tiger s&p500', 's&p500'], currency: 'KRW', exchange: 'KOSPI', type: 'ETF' },
+  { symbol: '379800.KS', name: 'KODEX 미국S&P500TR', keywords: ['kodex s&p500'], currency: 'KRW', exchange: 'KOSPI', type: 'ETF' },
 ]
 
 function isLocalDev() {
   if (typeof window === 'undefined') return false
-  return (
-    window.location.port === '5173' ||
-    ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
-  )
+  return ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+}
+
+function readerUrl(url) {
+  return `https://r.jina.ai/${encodeURIComponent(url)}`
 }
 
 function yahooChartPath(symbol, options = {}) {
@@ -80,13 +84,25 @@ function yahooChartUrl(symbol, options) {
   // GitHub Pages has no server-side proxy, and Yahoo's chart endpoint is not
   // browser-CORS friendly. Jina Reader gives static deployments a CORS-enabled
   // read-only pass-through while keeping the same Yahoo payload shape.
-  return `https://r.jina.ai/http://query1.finance.yahoo.com${path.replace(/&/g, '%26')}`
+  return readerUrl(`http://query1.finance.yahoo.com${path}`)
 }
 
 function yahooSearchUrl(query, options) {
   const path = yahooSearchPath(query, options)
   if (isLocalDev()) return `/api/yahoo${path}`
-  return `https://r.jina.ai/http://query1.finance.yahoo.com${path.replace(/&/g, '%26')}`
+  return readerUrl(`http://query1.finance.yahoo.com${path}`)
+}
+
+function naverStockBasicUrl(code) {
+  if (typeof window === 'undefined') return `https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/basic`
+  return readerUrl(`http://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/basic`)
+}
+
+function naverEtfListUrl(page, pageSize = NAVER_ETF_PAGE_SIZE) {
+  if (typeof window === 'undefined') {
+    return `https://m.stock.naver.com/api/stocks/etf?page=${page}&pageSize=${pageSize}`
+  }
+  return readerUrl(`http://m.stock.naver.com/api/stocks/etf?page=${page}&pageSize=${pageSize}`)
 }
 
 function extractJson(text) {
@@ -151,7 +167,7 @@ function quoteFromYahooData(data, fallbackSymbol) {
     previousClose,
     change,
     changePercent,
-    currency: meta?.currency || '',
+    currency: meta?.currency || guessStockCurrency(meta?.symbol || fallbackSymbol, meta?.exchangeName),
     time: seconds ? new Date(seconds * 1000).toISOString() : new Date().toISOString(),
   }
 }
@@ -163,7 +179,22 @@ async function fetchYahooQuote(symbol, emptyMessage) {
 }
 
 function compactSearchText(value) {
-  return String(value || '').toLowerCase().replace(/[\s._-]+/g, '')
+  return String(value || '')
+    .toLowerCase()
+    .replace(/코덱스/g, 'kodex')
+    .replace(/타이거/g, 'tiger')
+    .replace(/에이스/g, 'ace')
+    .replace(/라이즈/g, 'rise')
+    .replace(/케이비스타/g, 'kbstar')
+    .replace(/아리랑/g, 'arirang')
+    .replace(/플러스/g, 'plus')
+    .replace(/하나로/g, 'hanaro')
+    .replace(/코세프/g, 'kosef')
+    .replace(/쏠|솔/g, 'sol')
+    .replace(/에스[앤엔]피/g, 'sandp')
+    .replace(/s\s*&\s*p/g, 'sandp')
+    .replace(/\bsp(?=\d)/g, 'sandp')
+    .replace(/[^0-9a-z가-힣]+/g, '')
 }
 
 function hasKorean(value) {
@@ -189,8 +220,9 @@ function normalizeSearchItem(item) {
     symbol,
     name,
     exchange,
-    type: String(item?.quoteType || item?.typeDisp || '').trim(),
+    type: String(item?.quoteType || item?.typeDisp || item?.type || '').trim(),
     currency,
+    currentPrice: Number(item?.currentPrice) || undefined,
   }
 }
 
@@ -201,7 +233,7 @@ function localStockSearch(query) {
 
   return STOCK_SEARCH_PRESETS.map((item) => ({
     ...item,
-    type: 'EQUITY',
+    type: item.type || 'EQUITY',
     score:
       item.symbol === normalizedSymbol
         ? 0
@@ -221,6 +253,119 @@ function localStockSearch(query) {
     .filter(Boolean)
 }
 
+function koreanStockCode(symbol) {
+  const match = String(symbol || '').toUpperCase().match(/^(\d[0-9A-Z]{5})(?:\.(?:KS|KQ))?$/)
+  return match?.[1] || ''
+}
+
+function parseMarketNumber(value) {
+  const n = Number(String(value ?? '').replace(/,/g, '').replace(/[^\d.-]/g, ''))
+  return Number.isFinite(n) ? n : 0
+}
+
+function quoteFromNaverData(data, fallbackSymbol) {
+  const price = parseMarketNumber(data?.closePriceRaw ?? data?.closePrice)
+  if (!price || price <= 0) throw new Error('현재가를 찾을 수 없습니다.')
+  const change = parseMarketNumber(data?.compareToPreviousClosePriceRaw ?? data?.compareToPreviousClosePrice)
+  const previousClose = price - change
+  const changePercent = parseMarketNumber(data?.fluctuationsRatioRaw ?? data?.fluctuationsRatio)
+  return {
+    symbol: normalizeStockSymbol(data?.itemCode || data?.reutersCode || fallbackSymbol),
+    price,
+    previousClose: previousClose > 0 ? previousClose : 0,
+    change,
+    changePercent,
+    currency: data?.currencyType?.name || data?.currencyType?.code || 'KRW',
+    time: data?.localTradedAt ? new Date(data.localTradedAt).toISOString() : new Date().toISOString(),
+  }
+}
+
+async function fetchNaverQuote(symbol) {
+  const code = koreanStockCode(symbol)
+  if (!code) throw new Error('종목 코드가 없습니다.')
+  return quoteFromNaverData(await fetchJson(naverStockBasicUrl(code)), symbol)
+}
+
+function normalizeNaverEtfItem(item) {
+  const code = String(item?.itemCode || item?.reutersCode || '').trim()
+  if (!/^\d[0-9A-Z]{5}$/.test(code)) return null
+  const exchangeCode = item?.stockExchangeType?.code || 'KS'
+  const suffix = exchangeCode === 'KQ' ? 'KQ' : 'KS'
+  return normalizeSearchItem({
+    symbol: `${code}.${suffix}`,
+    name: item?.stockName,
+    exchange: item?.stockExchangeType?.nameEng || item?.stockExchangeType?.name || 'KOSPI',
+    quoteType: 'ETF',
+    currency: 'KRW',
+    currentPrice: parseMarketNumber(item?.closePriceRaw ?? item?.closePrice),
+  })
+}
+
+let naverEtfListPromise = null
+
+async function fetchNaverEtfList() {
+  if (!naverEtfListPromise) {
+    naverEtfListPromise = (async () => {
+      const first = await fetchJson(naverEtfListUrl(1))
+      const firstStocks = first?.stocks || []
+      const total = Number(first?.totalCount) || firstStocks.length
+      const pages = Math.min(Math.ceil(total / NAVER_ETF_PAGE_SIZE), NAVER_ETF_MAX_PAGES)
+      const rest = await Promise.all(
+        Array.from({ length: Math.max(0, pages - 1) }, (_, index) =>
+          fetchJson(naverEtfListUrl(index + 2)).catch(() => ({ stocks: [] }))
+        )
+      )
+      return [first, ...rest]
+        .flatMap((page) => page?.stocks || [])
+        .map(normalizeNaverEtfItem)
+        .filter(Boolean)
+    })().catch((error) => {
+      naverEtfListPromise = null
+      throw error
+    })
+  }
+  return naverEtfListPromise
+}
+
+function shouldSearchKoreanEtfs(query) {
+  const compact = compactSearchText(query)
+  return (
+    hasKorean(query) ||
+    /^\d{2,6}/.test(compact) ||
+    /(kodex|tiger|ace|sol|rise|kbstar|arirang|plus|hanaro|kosef|etf|sandp|nasdaq|kospi|kosdaq)/i.test(compact)
+  )
+}
+
+async function naverEtfSearch(query, options = {}) {
+  if (!shouldSearchKoreanEtfs(query)) return []
+  const compact = compactSearchText(query)
+  const normalizedSymbol = normalizeStockSymbol(query)
+  const normalizedCode = koreanStockCode(normalizedSymbol)
+  const limit = options.limit || 8
+  const list = await fetchNaverEtfList()
+
+  return list
+    .map((item) => {
+      const itemCode = koreanStockCode(item.symbol)
+      const text = compactSearchText(`${item.name} ${item.symbol} ${itemCode}`)
+      const score =
+        item.symbol === normalizedSymbol || itemCode === normalizedCode
+          ? 0
+          : compactSearchText(item.name) === compact
+            ? 1
+            : itemCode.startsWith(compact)
+              ? 2
+              : text.includes(compact)
+                ? 3
+                : 99
+      return { ...item, score }
+    })
+    .filter((item) => item.score < 99)
+    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name, 'ko'))
+    .slice(0, limit)
+    .map(({ score, ...item }) => item)
+}
+
 async function yahooStockSearch(query, options = {}) {
   const data = await fetchJson(yahooSearchUrl(query, options))
   return (data?.quotes || [])
@@ -234,14 +379,26 @@ export async function fetchStockSearch(input, options = {}) {
   if (query.length < 2) return []
 
   const local = localStockSearch(query)
+  const naverEtfs = await naverEtfSearch(query, { limit: options.limit || 8 }).catch(() => [])
   const remote =
-    hasKorean(query) && local.length > 0
+    hasKorean(query) && (local.length > 0 || naverEtfs.length > 0)
       ? []
       : await yahooStockSearch(query, { limit: options.limit || 8 }).catch(() => [])
 
   const map = new Map()
-  ;[...local, ...remote].forEach((item) => {
-    if (!map.has(item.symbol)) map.set(item.symbol, item)
+  ;[...local, ...naverEtfs, ...remote].forEach((item) => {
+    const prev = map.get(item.symbol)
+    if (!prev) {
+      map.set(item.symbol, item)
+      return
+    }
+    map.set(item.symbol, {
+      ...prev,
+      exchange: prev.exchange || item.exchange,
+      type: prev.type || item.type,
+      currency: prev.currency || item.currency,
+      currentPrice: prev.currentPrice || item.currentPrice,
+    })
   })
   return [...map.values()].slice(0, options.limit || 8)
 }
@@ -307,7 +464,13 @@ async function fetchFrankfurterRate(base, target) {
 }
 
 export async function fetchStockQuote(input) {
-  return fetchYahooQuote(normalizeStockSymbol(input), '종목 코드가 없습니다.')
+  const symbol = normalizeStockSymbol(input)
+  try {
+    return await fetchYahooQuote(symbol, '종목 코드가 없습니다.')
+  } catch (error) {
+    if (koreanStockCode(symbol)) return fetchNaverQuote(symbol)
+    throw error
+  }
 }
 
 export async function fetchStockHistory(input, options = {}) {

@@ -39,7 +39,7 @@ export function countBackupItems(document) {
     (stages.expense?.entries?.length || 0) +
     (stages.expense?.fixed?.templates?.length || 0) +
     (stages.investment?.products?.length || 0) +
-    (stages.investment?.simulations?.length || 0)
+    (stages.mockInvest?.portfolio?.trades?.length || 0)
   )
 }
 

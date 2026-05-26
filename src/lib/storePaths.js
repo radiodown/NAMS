@@ -24,6 +24,8 @@ export const STORE_PATHS = Object.freeze({
   }),
   investment: Object.freeze({
     products: 'stages.investment.products',
-    simulations: 'stages.investment.simulations',
+  }),
+  mockInvest: Object.freeze({
+    portfolio: 'stages.mockInvest.portfolio',
   }),
 })

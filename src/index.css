@@ -753,6 +753,19 @@ button {
   margin-left: 0;
 }
 
+.category-stat-card .fx-rate-value {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 1.12;
+}
+
+.category-stat-card .fx-rate-change {
+  display: block;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
 @keyframes category-roll-up {
   from {
     opacity: 0;
@@ -5677,4 +5690,123 @@ select:disabled,
 input::placeholder,
 textarea::placeholder {
   color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+/* ---------- mock invest stage ---------- */
+.mock-invest-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mock-invest-setup-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mock-invest-setup-form > * {
+  flex: 0 0 auto;
+}
+
+.mock-invest-setup-form .number-input,
+.mock-invest-setup-form input {
+  flex: 1 1 220px;
+}
+
+.mock-invest-setup .hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mock-invest-stat-grid .stat-card .month-change {
+  font-size: 12px;
+}
+
+.mock-invest-trade-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mock-invest-search {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mock-invest-search > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.mock-invest-trade-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.mock-invest-trade-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mock-invest-trade-fields label > span {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.mock-invest-trade-total {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.mock-invest-positions th,
+.mock-invest-positions td {
+  vertical-align: middle;
+}
+
+.mock-invest-row-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.mock-invest-positions td.up,
+.mock-invest-positions td.down {
+  font-weight: 800;
+}
+
+.tag.up {
+  background: color-mix(in srgb, #dc2626 16%, var(--surface));
+  color: #dc2626;
+}
+
+.tag.down {
+  background: color-mix(in srgb, #16a34a 16%, var(--surface));
+  color: #16a34a;
+}
+
+@media (max-width: 720px) {
+  .mock-invest-trade-fields {
+    grid-template-columns: 1fr 1fr;
+  }
+  .mock-invest-trade-fields label:last-of-type,
+  .mock-invest-trade-fields .btn {
+    grid-column: 1 / -1;
+  }
 }

@@ -1,4 +1,4 @@
-// Investment-product math: 예금(lump deposit), 적금(installment savings), 주식(stocks), 환율(FX).
+// Investment-product math: 예금(lump deposit), 적금(installment savings), 주식(stocks), 비트코인, 자산(manual assets), 환율(FX).
 
 function parseYMD(s) {
   const [y, m, d] = String(s || '').split('-').map(Number)
@@ -152,9 +152,43 @@ export function stockMetrics(p, rates = {}) {
   }
 }
 
+export function bitcoinMetrics(p) {
+  const quantity = Number(p.quantity ?? p.bitcoinAmount ?? p.btcAmount ?? p.shares) || 0
+  const buy = Number(p.buyPrice ?? p.bitcoinBuyPrice) || 0
+  const cur = Number(p.currentPrice) || buy
+  const cost = quantity * buy
+  const value = quantity * cur
+  return {
+    kind: '비트코인',
+    quantity,
+    buyPrice: buy,
+    currentPrice: cur,
+    currency: 'KRW',
+    exchangeRate: 1,
+    cost,
+    current: value,
+    profit: value - cost,
+    returnPct: buy > 0 ? (cur / buy - 1) * 100 : 0,
+  }
+}
+
+export function assetMetrics(p) {
+  const current = Number(p.assetValue ?? p.currentValue ?? p.value) || 0
+  const cost = Number(p.assetCost ?? p.cost) || current
+  return {
+    kind: '자산',
+    assetType: p.assetType || '기타',
+    cost,
+    current,
+    profit: current - cost,
+  }
+}
+
 export function productMetrics(p, today, rates = {}) {
   if (p.kind === '예금') return depositMetrics(p, today)
   if (p.kind === '적금') return savingsMetrics(p, today)
+  if (p.kind === '비트코인') return bitcoinMetrics(p)
+  if (p.kind === '자산') return assetMetrics(p)
   if (p.kind === '환율') return exchangeRateMetrics(p)
   return stockMetrics(p, rates)
 }
@@ -164,7 +198,7 @@ export function summarize(products, today) {
   const rates = exchangeRateMap(products)
   let cost = 0
   let current = 0
-  const byKind = { 예금: 0, 적금: 0, 주식: 0, 환율: 0 }
+  const byKind = { 예금: 0, 적금: 0, 주식: 0, 비트코인: 0, 자산: 0, 환율: 0 }
   for (const p of products) {
     const m = productMetrics(p, today, rates)
     cost += m.cost
@@ -174,7 +208,7 @@ export function summarize(products, today) {
   return { cost, current, profit: current - cost, byKind }
 }
 
-// Monthly total-asset projection: cash held flat, 예금/적금 grow, 주식 held flat.
+// Monthly total-asset projection: cash held flat, 예금/적금 grow, 주식/비트코인/자산 held flat.
 export function projectAssets(products, cash, today, horizonMonths) {
   const rates = exchangeRateMap(products)
   const deposits = products
@@ -186,6 +220,12 @@ export function projectAssets(products, cash, today, horizonMonths) {
   const stockTotal = products
     .filter((p) => p.kind === '주식')
     .reduce((s, p) => s + stockMetrics(p, rates).current, 0)
+  const bitcoinTotal = products
+    .filter((p) => p.kind === '비트코인')
+    .reduce((s, p) => s + bitcoinMetrics(p).current, 0)
+  const assetTotal = products
+    .filter((p) => p.kind === '자산')
+    .reduce((s, p) => s + assetMetrics(p).current, 0)
 
   const points = []
   for (let t = 0; t <= horizonMonths; t++) {
@@ -197,7 +237,9 @@ export function projectAssets(products, cash, today, horizonMonths) {
       예금,
       적금,
       주식: stockTotal,
-      총자산: cash + 예금 + 적금 + stockTotal,
+      비트코인: bitcoinTotal,
+      자산: assetTotal,
+      총자산: cash + 예금 + 적금 + stockTotal + bitcoinTotal + assetTotal,
     })
   }
   return points
