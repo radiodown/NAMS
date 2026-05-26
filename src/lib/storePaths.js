@@ -7,6 +7,10 @@ export const STORE_PATHS = Object.freeze({
   income: Object.freeze({
     categories: 'stages.income.categories',
     entries: 'stages.income.entries',
+    fixedTemplates: 'stages.income.fixed.templates',
+    fixedRecords: 'stages.income.fixed.records',
+    fixedClosedMonths: 'stages.income.fixed.closedMonths',
+    fixedLastActiveMonth: 'stages.income.fixed.lastActiveMonth',
   }),
   expense: Object.freeze({
     categories: 'stages.expense.categories',

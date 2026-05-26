@@ -3,7 +3,7 @@ import { STAGE_META } from '../lib/categories'
 import { formatKRW } from '../lib/format'
 import { createId } from '../lib/id'
 import { isLoanInterestCategory } from '../lib/loanInterest'
-import { parseNumberInput } from '../lib/numberInput'
+import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
 import LoanInterestCalculator from './LoanInterestCalculator'
 import NumberInput from './NumberInput'
 import Picker from './Picker'
@@ -29,15 +29,19 @@ const WIDGET_COLORS = [
   '#dc2626', '#ea580c', '#d97706', '#16a34a', '#0891b2',
   '#2563eb', '#7c3aed', '#c026d3', '#db2777', '#0d9488',
 ]
+const INCOME_WIDGET_COLORS = [
+  '#059669', '#2563eb', '#0d9488', '#7c3aed', '#65a30d',
+  '#d97706', '#db2777', '#0891b2', '#4f46e5', '#16a34a',
+]
 
-function colorForCategory(category, categories) {
+function colorForCategory(category, categories, palette = WIDGET_COLORS) {
   const idx = categories.indexOf(category)
-  if (idx >= 0) return WIDGET_COLORS[idx % WIDGET_COLORS.length]
+  if (idx >= 0) return palette[idx % palette.length]
   let hash = 0
   for (let i = 0; i < category.length; i += 1) {
-    hash = (hash + category.charCodeAt(i) * (i + 1)) % WIDGET_COLORS.length
+    hash = (hash + category.charCodeAt(i) * (i + 1)) % palette.length
   }
-  return WIDGET_COLORS[hash]
+  return palette[hash]
 }
 
 // Parse a #rgb or #rrggbb string to [r, g, b]; null if it isn't valid hex.
@@ -142,6 +146,7 @@ function applyMerge(source, unit, updateItem) {
 }
 
 export default function FixedExpenses({
+  type = '지출',
   items,
   addItem,
   updateItem,
@@ -150,6 +155,15 @@ export default function FixedExpenses({
   addCategory,
   paymentMethods = [],
 }) {
+  const meta = STAGE_META[type] || STAGE_META.지출
+  const isExpense = type === '지출'
+  const fixedLabel = isExpense ? '고정지출' : '고정수입'
+  const dayLabel = isExpense ? '결제일' : '입금일'
+  const namePlaceholder = isExpense ? '예: 넷플릭스' : '예: 월급'
+  const colorPalette = isExpense ? WIDGET_COLORS : INCOME_WIDGET_COLORS
+  const emptyHelp = isExpense
+    ? '+ 버튼으로 월세, 구독료, 보험료를 추가하세요.'
+    : '+ 버튼으로 월급, 용돈, 임대수입을 추가하세요.'
   const [collapsed, setCollapsed] = useState(false)
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState(null)
@@ -274,12 +288,25 @@ export default function FixedExpenses({
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
   const selectedColor =
-    form.color || colorForCategory(form.category.trim() || '기타', categories)
-  const loanInterestMode = isLoanInterestCategory(form.category)
+    form.color || colorForCategory(form.category.trim() || '기타', categories, colorPalette)
+  const loanInterestMode = isExpense && isLoanInterestCategory(form.category)
+
+  function defaultFixedForm() {
+    const validItems = items.filter(Boolean)
+    const latest = validItems[validItems.length - 1]
+    if (!latest) return blankForm()
+    const day = itemDay(latest)
+    return {
+      ...blankForm(),
+      category: itemCategory(latest),
+      paymentMethodId: isExpense ? itemPaymentMethodId(latest) : '',
+      day: day === '' ? '' : String(day),
+    }
+  }
 
   function submitForm(e) {
     e.preventDefault()
-    const amount = parseNumberInput(form.amount)
+    const amount = parseAmountInput(form.amount)
     if (!form.name.trim()) {
       alert('항목명을 입력하세요.')
       return
@@ -293,11 +320,13 @@ export default function FixedExpenses({
       name: form.name.trim(),
       category: form.category.trim() || '기타',
       color: selectedColor,
-      paymentMethodId: form.paymentMethodId,
-      paymentMethod:
-        paymentMethods.find((method) => method.id === form.paymentMethodId)?.name || '미지정',
       amount,
       day,
+    }
+    if (isExpense) {
+      payload.paymentMethodId = form.paymentMethodId
+      payload.paymentMethod =
+        paymentMethods.find((method) => method.id === form.paymentMethodId)?.name || '미지정'
     }
     if (loanInterestMode) {
       payload.loanMethod = form.loanMethod
@@ -307,20 +336,20 @@ export default function FixedExpenses({
       payload.loanRound = form.loanRound
       payload.loanGraceMonths = form.loanGraceMonths
     }
-    addCategory?.('지출', payload.category)
+    addCategory?.(type, payload.category)
     if (editingId) {
       updateItem(editingId, payload)
       setEditingId(null)
     } else {
       addItem(payload)
     }
-    setForm(blankForm())
+    setForm(defaultFixedForm())
     setFormOpen(false)
   }
 
   function openAdd() {
     setEditingId(null)
-    setForm(blankForm())
+    setForm(defaultFixedForm())
     setCollapsed(false)
     setFormOpen(true)
   }
@@ -331,10 +360,11 @@ export default function FixedExpenses({
     setForm({
       name: itemName(it) === '(이름 없음)' ? '' : itemName(it),
       category: itemCategory(it),
-      paymentMethodId:
-        itemPaymentMethodId(it) ||
-        paymentMethods.find((method) => method.name === it?.paymentMethod)?.id ||
-        '',
+      paymentMethodId: isExpense
+        ? itemPaymentMethodId(it) ||
+          paymentMethods.find((method) => method.name === it?.paymentMethod)?.id ||
+          ''
+        : '',
       amount: String(it.amount || ''),
       day: day === '' ? '' : String(day),
       color: itemColor(it, itemCategory(it), categories),
@@ -358,12 +388,42 @@ export default function FixedExpenses({
   function handleRemove(it) {
     if (
       window.confirm(
-        `고정지출 '${itemName(it)}'을(를) 삭제할까요?`
+        `${fixedLabel} '${itemName(it)}'을(를) 삭제할까요?`
       )
     ) {
       removeItem(it.id)
       if (editingId === it.id) cancelEdit()
     }
+  }
+
+  function duplicateItem(it) {
+    const category = itemCategory(it)
+    const day = itemDay(it)
+    const payload = {
+      name: `${itemName(it)} 복사`,
+      category,
+      color: itemColor(it, category, categories),
+      amount: Number(it.amount) || 0,
+      day,
+      groupId: '',
+    }
+    if (isExpense) {
+      payload.paymentMethodId = itemPaymentMethodId(it)
+      payload.paymentMethod =
+        paymentMethods.find((method) => method.id === payload.paymentMethodId)?.name ||
+        it?.paymentMethod ||
+        '미지정'
+    }
+    if (isExpense && isLoanInterestCategory(category)) {
+      payload.loanMethod = it.loanMethod
+      payload.loanPrincipal = it.loanPrincipal
+      payload.loanRate = it.loanRate
+      payload.loanMonths = it.loanMonths
+      payload.loanRound = it.loanRound
+      payload.loanGraceMonths = it.loanGraceMonths
+    }
+    addCategory?.(type, category)
+    addItem(payload)
   }
 
   const draggingItem = draggingId ? items.find((it) => it.id === draggingId) || null : null
@@ -522,11 +582,11 @@ export default function FixedExpenses({
   }, [])
 
   return (
-    <div className="fixed-section" style={{ '--accent': STAGE_META.지출.color }}>
+    <div className="fixed-section" style={{ '--accent': meta.color }}>
       <div className="fixed-head">
         <button className="fixed-toggle" onClick={() => setCollapsed((c) => !c)}>
           <span className={`chevron${collapsed ? '' : ' open'}`}>▶</span>
-          <h2 className="section-title" style={{ margin: 0 }}>고정지출</h2>
+          <h2 className="section-title" style={{ margin: 0 }}>{fixedLabel}</h2>
         </button>
         <div className="fixed-summary">
           <span className="fixed-summary-total">월 {formatKRW(totalMonthly)}</span>
@@ -534,7 +594,7 @@ export default function FixedExpenses({
             위젯 {items.length}개 · 카테고리 {groups.length}개
           </span>
         </div>
-        <button className="fixed-add-btn" onClick={openAdd} aria-label="고정지출 위젯 추가">
+        <button className="fixed-add-btn" onClick={openAdd} aria-label={`${fixedLabel} 위젯 추가`}>
           <PlusIcon />
         </button>
       </div>
@@ -543,9 +603,20 @@ export default function FixedExpenses({
         <>
           {items.length === 0 ? (
             <div className="fixed-widget-grid">
-              <div className="fixed-empty-widget">
+              <div
+                className="fixed-empty-widget"
+                role="button"
+                tabIndex={0}
+                onClick={openAdd}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    openAdd()
+                  }
+                }}
+              >
                 <strong>등록된 위젯 없음</strong>
-                <span>+ 버튼으로 월세, 구독료, 보험료를 추가하세요.</span>
+                <span>{emptyHelp}</span>
               </div>
             </div>
           ) : (
@@ -620,6 +691,14 @@ export default function FixedExpenses({
                         <div className="fixed-widget-actions">
                           <button
                             className="icon-btn"
+                            onClick={() => duplicateItem(it)}
+                            aria-label={`${itemName(it)} 복제`}
+                            title="복제"
+                          >
+                            ⧉
+                          </button>
+                          <button
+                            className="icon-btn"
                             onClick={() => startEdit(it)}
                             aria-label={`${itemName(it)} 수정`}
                             title="수정"
@@ -656,7 +735,7 @@ export default function FixedExpenses({
                             ? `매월 ${day}일${
                                 soon ? (dday === 0 ? ' · 오늘' : ` · D-${dday}`) : ''
                               }`
-                            : '결제일 미설정'}
+                            : `${dayLabel} 미설정`}
                         </span>
                         <span className="fixed-widget-share">{shareLabel}</span>
                       </div>
@@ -687,7 +766,7 @@ export default function FixedExpenses({
                     <label>항목명</label>
                     <input
                       type="text"
-                      placeholder="예: 넷플릭스"
+                      placeholder={namePlaceholder}
                       value={form.name}
                       onChange={(e) => set('name', e.target.value)}
                     />
@@ -705,7 +784,7 @@ export default function FixedExpenses({
                     <label>색상</label>
                     <div className="fixed-color-control">
                       <div className="fixed-color-swatches">
-                        {WIDGET_COLORS.map((color) => (
+                        {colorPalette.map((color) => (
                           <button
                             type="button"
                             className={`fixed-color-swatch${selectedColor === color ? ' on' : ''}`}
@@ -724,18 +803,20 @@ export default function FixedExpenses({
                       />
                     </div>
                   </div>
-                  <div className="field">
-                    <label>결제수단</label>
-                    <Picker
-                      value={form.paymentMethodId}
-                      options={paymentOptions}
-                      placeholder="미지정"
-                      onChange={(value) => set('paymentMethodId', value)}
-                    />
-                  </div>
+                  {isExpense && (
+                    <div className="field">
+                      <label>결제수단</label>
+                      <Picker
+                        value={form.paymentMethodId}
+                        options={paymentOptions}
+                        placeholder="미지정"
+                        onChange={(value) => set('paymentMethodId', value)}
+                      />
+                    </div>
+                  )}
                   <div className="fixed-widget-form-row">
                     <div className="field">
-                      <label>결제일</label>
+                      <label>{dayLabel}</label>
                       <NumberInput
                         min="1"
                         max="31"
@@ -751,6 +832,7 @@ export default function FixedExpenses({
                         min="0"
                         step="1"
                         decimal={false}
+                        amount
                         placeholder="0"
                         value={form.amount}
                         onChange={(value) => set('amount', value)}

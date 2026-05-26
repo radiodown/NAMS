@@ -39,6 +39,24 @@ export function fixedExpenseEntriesForMonth(items = [], month, paymentMethods = 
     })
 }
 
+export function fixedIncomeEntriesForMonth(items = [], month) {
+  if (!month) return []
+
+  return items
+    .filter(Boolean)
+    .map((item) => ({
+      id: `fixed-income-${item.id || item.name}-${month}`,
+      type: '수입',
+      date: dateForMonth(month, item.day),
+      category: item.category || '기타',
+      color: item.color || '',
+      amount: Number(item.amount) || 0,
+      memo: item.name || '고정수입',
+      fixedId: item.id || '',
+      virtualFixed: true,
+    }))
+}
+
 export function fixedExpenseEntriesFromRecords(records = [], paymentMethods = []) {
   return records.filter(Boolean).map((record) => {
     const paymentMethodId = record.paymentMethodId || ''
@@ -61,6 +79,23 @@ export function fixedExpenseEntriesFromRecords(records = [], paymentMethods = []
       loanMonths: record.loanMonths,
       loanRound: record.loanRound,
       loanGraceMonths: record.loanGraceMonths,
+    }
+  })
+}
+
+export function fixedIncomeEntriesFromRecords(records = []) {
+  return records.filter(Boolean).map((record) => {
+    const day = record.day || '01'
+    return {
+      id: record.id || `fixed-income-record-${record.sourceId || record.name}-${record.month}`,
+      type: '수입',
+      date: `${record.month}-${String(day).padStart(2, '0')}`,
+      category: record.category || '기타',
+      color: record.color || '',
+      amount: Number(record.amount) || 0,
+      memo: record.name || '고정수입',
+      fixedId: record.sourceId || '',
+      fixedRecord: true,
     }
   })
 }

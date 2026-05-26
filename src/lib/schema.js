@@ -9,7 +9,26 @@ import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
 export const SCHEMA_VERSION = 1
 
 // UI tab names in default order. The stage config persists name + visibility.
-export const STAGE_TABS = ['수입', '지출', '지출 관리', '투자', '투자 시뮬레이션', '그래프요약', '연말정산']
+export const STAGE_TABS = [
+  '수입',
+  '수입 관리',
+  '지출',
+  '지출 관리',
+  '그래프요약',
+  '투자',
+  '연말정산',
+  '투자 시뮬레이션',
+]
+
+const DEFAULT_VISIBLE_STAGES = new Set([
+  '수입',
+  '수입 관리',
+  '지출',
+  '지출 관리',
+  '그래프요약',
+  '투자',
+  '연말정산',
+])
 
 // Tax-benefit tags an investment product can claim. Drives 연말정산 stage matching.
 export const TAX_BENEFIT_TAGS = ['없음', 'ISA', '연금저축', 'IRP', '주택청약', '청년도약계좌']
@@ -136,12 +155,20 @@ export function normalizeTemplate(template) {
 
 // --- fixed expense monthly record ------------------------------------------
 export function normalizeRecord(record) {
+  return normalizeRecurringRecord(record, '고정지출')
+}
+
+export function normalizeIncomeRecord(record) {
+  return normalizeRecurringRecord(record, '고정수입')
+}
+
+function normalizeRecurringRecord(record, fallbackName) {
   const category = str(record?.category) || '기타'
   return {
     id: str(record?.id) || createId(),
     month: str(record?.month || record?.date).slice(0, 7),
     sourceId: str(record?.sourceId || record?.fixedId),
-    name: str(record?.name || record?.memo) || '고정지출',
+    name: str(record?.name || record?.memo) || fallbackName,
     category,
     amount: num(record?.amount),
     day: optNum(record?.day),
@@ -183,7 +210,7 @@ export function defaultMethods() {
 }
 
 export function defaultStageConfig() {
-  return STAGE_TABS.map((name) => ({ name, visible: true }))
+  return STAGE_TABS.map((name) => ({ name, visible: DEFAULT_VISIBLE_STAGES.has(name) }))
 }
 
 export function defaultTaxSettings() {
@@ -230,7 +257,7 @@ export function normalizeStageConfig(value) {
     ordered.push({ name, visible: stage?.visible !== false })
   })
   STAGE_TABS.forEach((name) => {
-    if (!used.has(name)) ordered.push({ name, visible: true })
+    if (!used.has(name)) ordered.push({ name, visible: DEFAULT_VISIBLE_STAGES.has(name) })
   })
   if (!ordered.some((stage) => stage.visible)) ordered[0].visible = true
   return ordered
@@ -246,7 +273,11 @@ export function buildDefaultDoc() {
       taxSettlement: defaultTaxSettings(),
     },
     stages: {
-      income: { categories: defaultCategories('수입'), entries: [] },
+      income: {
+        categories: defaultCategories('수입'),
+        entries: [],
+        fixed: { templates: [], records: [], closedMonths: [], lastActiveMonth: '' },
+      },
       expense: {
         categories: defaultCategories('지출'),
         paymentMethods: defaultMethods(),
@@ -274,9 +305,11 @@ function closedMonthList(saved, records) {
 export function normalizeDoc(raw) {
   const source = raw && typeof raw === 'object' ? raw : {}
   const income = source.stages?.income || {}
+  const incomeFixed = income.fixed || {}
   const expense = source.stages?.expense || {}
   const fixed = expense.fixed || {}
   const investment = source.stages?.investment || {}
+  const incomeLastActiveMonth = str(incomeFixed.lastActiveMonth).slice(0, 7)
   const lastActiveMonth = str(fixed.lastActiveMonth).slice(0, 7)
 
   return {
@@ -290,6 +323,12 @@ export function normalizeDoc(raw) {
       income: {
         categories: categoriesOrDefault(income.categories, '수입'),
         entries: arr(income.entries).map(normalizeEntry),
+        fixed: {
+          templates: arr(incomeFixed.templates).map(normalizeTemplate),
+          records: arr(incomeFixed.records).map(normalizeIncomeRecord).filter((record) => record.month),
+          closedMonths: closedMonthList(incomeFixed.closedMonths, incomeFixed.records),
+          lastActiveMonth: MONTH_RE.test(incomeLastActiveMonth) ? incomeLastActiveMonth : '',
+        },
       },
       expense: {
         categories: categoriesOrDefault(expense.categories, '지출'),

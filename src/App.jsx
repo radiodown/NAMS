@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLedger } from './lib/useLedger'
 import { useFixedExpenses } from './lib/useFixedExpenses'
+import { useFixedIncomes } from './lib/useFixedIncomes'
 import { useInvestments } from './lib/useInvestments'
 import { useInvestmentSimulations } from './lib/useInvestmentSimulations'
 import { useCategories } from './lib/useCategories'
@@ -8,11 +9,17 @@ import { usePaymentMethods } from './lib/usePaymentMethods'
 import { todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
 import { INVEST_SIM_COLOR } from './lib/investmentSimulation'
-import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from './lib/fixedExpenseEntries'
+import {
+  fixedExpenseEntriesForMonth,
+  fixedExpenseEntriesFromRecords,
+  fixedIncomeEntriesForMonth,
+  fixedIncomeEntriesFromRecords,
+} from './lib/fixedExpenseEntries'
 import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
 import InvestmentSimulationStage from './components/InvestmentSimulationStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
+import IncomeManagementStage from './components/IncomeManagementStage'
 import SummaryStage from './components/SummaryStage'
 import TaxSettlementStage from './components/TaxSettlementStage'
 import SettingsModal from './components/SettingsModal'
@@ -35,6 +42,7 @@ import {
 
 const TAB_COLOR = {
   수입: STAGE_META.수입.color,
+  '수입 관리': STAGE_META.수입.color,
   지출: STAGE_META.지출.color,
   '지출 관리': STAGE_META.지출.color,
   투자: INVEST_COLOR,
@@ -52,6 +60,7 @@ function shiftMonth(month, offset) {
 
 export default function App() {
   const ledger = useLedger()
+  const fixedIncome = useFixedIncomes()
   const fixed = useFixedExpenses()
   const invest = useInvestments()
   const simulations = useInvestmentSimulations()
@@ -73,6 +82,19 @@ export default function App() {
     () => entries.filter((entry) => !entry.fixedId),
     [entries]
   )
+  const currentFixedIncomeEntries = useMemo(
+    () => fixedIncomeEntriesForMonth(fixedIncome.items, currentMonth),
+    [fixedIncome.items, currentMonth]
+  )
+  const previousFixedIncomeEntries = useMemo(
+    () => {
+      const records = fixedIncome.records.filter((record) => record.month === previousMonth)
+      return records.length > 0
+        ? fixedIncomeEntriesFromRecords(records)
+        : fixedIncomeEntriesForMonth(fixedIncome.items, previousMonth)
+    },
+    [fixedIncome.items, fixedIncome.records, previousMonth]
+  )
   const currentFixedEntries = useMemo(
     () => fixedExpenseEntriesForMonth(fixed.items, currentMonth, paymentMethods.items),
     [fixed.items, currentMonth, paymentMethods.items]
@@ -88,15 +110,25 @@ export default function App() {
   )
   const fixedRecordEntries = useMemo(
     () =>
-      fixedExpenseEntriesFromRecords(
-        fixed.records.filter((record) => record.month < currentMonth),
-        paymentMethods.items
-      ),
-    [currentMonth, fixed.records, paymentMethods.items]
+      [
+        ...fixedIncomeEntriesFromRecords(
+          fixedIncome.records.filter((record) => record.month < currentMonth)
+        ),
+        ...fixedExpenseEntriesFromRecords(
+          fixed.records.filter((record) => record.month < currentMonth),
+          paymentMethods.items
+        ),
+      ],
+    [currentMonth, fixed.records, fixedIncome.records, paymentMethods.items]
   )
   const entriesWithCurrentFixed = useMemo(
-    () => [...transactionEntries, ...fixedRecordEntries, ...currentFixedEntries],
-    [transactionEntries, fixedRecordEntries, currentFixedEntries]
+    () => [
+      ...transactionEntries,
+      ...fixedRecordEntries,
+      ...currentFixedIncomeEntries,
+      ...currentFixedEntries,
+    ],
+    [transactionEntries, fixedRecordEntries, currentFixedIncomeEntries, currentFixedEntries]
   )
   const visibleTabs = useMemo(
     () => stageConfig.filter((stage) => stage.visible).map((stage) => stage.name),
@@ -112,6 +144,14 @@ export default function App() {
   }, [tab, visibleTabs])
 
   useEffect(() => {
+    const incomeLast = fixedIncome.lastActiveMonth
+    if (incomeLast && incomeLast < currentMonth) {
+      fixedIncome.recordMonth(incomeLast)
+    }
+    if (incomeLast !== currentMonth) {
+      fixedIncome.setLastActiveMonth(currentMonth)
+    }
+
     const last = fixed.lastActiveMonth
     if (last && last < currentMonth) {
       fixed.recordMonth(last, paymentMethods.items)
@@ -119,7 +159,16 @@ export default function App() {
     if (last !== currentMonth) {
       fixed.setLastActiveMonth(currentMonth)
     }
-  }, [currentMonth, fixed.lastActiveMonth, fixed.recordMonth, fixed.setLastActiveMonth, paymentMethods.items])
+  }, [
+    currentMonth,
+    fixed.lastActiveMonth,
+    fixed.recordMonth,
+    fixed.setLastActiveMonth,
+    fixedIncome.lastActiveMonth,
+    fixedIncome.recordMonth,
+    fixedIncome.setLastActiveMonth,
+    paymentMethods.items,
+  ])
 
   function exportJSON() {
     const blob = new Blob([createBackupText()], { type: BACKUP_MIME })
@@ -146,7 +195,7 @@ export default function App() {
       const count = countBackupItems(parsed)
       if (
         !window.confirm(
-          `현재 데이터를 이 백업(거래·고정지출·투자·시뮬레이션 ${count}건)으로 모두 교체합니다.\n계속할까요?`
+          `현재 데이터를 이 백업(거래·고정수입·고정지출·투자·시뮬레이션 ${count}건)으로 모두 교체합니다.\n계속할까요?`
         )
       ) {
         return
@@ -199,6 +248,13 @@ export default function App() {
     if (type === '지출') {
       fixed.replaceAll(
         fixed.items.map((item) =>
+          item.category === from ? { ...item, category: to } : item
+        )
+      )
+    }
+    if (type === '수입') {
+      fixedIncome.replaceAll(
+        fixedIncome.items.map((item) =>
           item.category === from ? { ...item, category: to } : item
         )
       )
@@ -473,6 +529,12 @@ export default function App() {
           <InvestmentStage investments={invest} />
         ) : tab === '투자 시뮬레이션' ? (
           <InvestmentSimulationStage investments={invest.items} simulations={simulations} />
+        ) : tab === '수입 관리' ? (
+          <IncomeManagementStage
+            entries={transactionEntries}
+            fixedItems={fixedIncome.items}
+            fixedRecords={fixedIncome.records}
+          />
         ) : tab === '지출 관리' ? (
           <ExpenseManagementStage
             entries={transactionEntries}
@@ -491,8 +553,11 @@ export default function App() {
             updateEntry={ledger.updateEntry}
             removeEntry={ledger.removeEntry}
             fixed={fixed}
+            fixedIncome={fixedIncome}
             fixedExpenseEntries={currentFixedEntries}
             previousFixedExpenseEntries={previousFixedEntries}
+            fixedIncomeEntries={currentFixedIncomeEntries}
+            previousFixedIncomeEntries={previousFixedIncomeEntries}
             categories={categoryStore.categories[tab] || STAGE_META[tab].categories}
             addCategory={categoryStore.addCategory}
             updateCategory={updateCategoryEverywhere}

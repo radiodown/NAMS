@@ -35,6 +35,7 @@ export function countBackupItems(document) {
   const stages = document?.stages || {}
   return (
     (stages.income?.entries?.length || 0) +
+    (stages.income?.fixed?.templates?.length || 0) +
     (stages.expense?.entries?.length || 0) +
     (stages.expense?.fixed?.templates?.length || 0) +
     (stages.investment?.products?.length || 0) +

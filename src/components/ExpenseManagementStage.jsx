@@ -83,6 +83,15 @@ export default function ExpenseManagementStage({
       sumBy(rows, (row) => methodName(methods, row.paymentMethodId, row.paymentMethod)),
     [rows, methods]
   )
+  const expenseListRows = useMemo(
+    () =>
+      [...rows].sort(
+        (a, b) =>
+          (b.date || '').localeCompare(a.date || '') ||
+          (Number(b.amount) || 0) - (Number(a.amount) || 0)
+      ),
+    [rows]
+  )
 
   const methodCards = useMemo(() => {
     const spentById = new Map()
@@ -302,6 +311,46 @@ export default function ExpenseManagementStage({
           updateMethod={updatePaymentMethod}
           removeMethod={paymentMethods.removeItem}
         />
+      </div>
+
+      <div className="card">
+        <h2 className="section-title">지출 내역</h2>
+        {expenseListRows.length === 0 ? (
+          <div className="empty">
+            <strong>선택한 기간의 지출이 없습니다</strong>
+            기간을 바꾸거나 지출 항목을 추가해 보세요.
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="ledger-table expense-history-table">
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>카테고리</th>
+                  <th>결제수단</th>
+                  <th className="col-right">금액</th>
+                  <th>메모</th>
+                </tr>
+              </thead>
+              <tbody>
+                {expenseListRows.map((row, index) => (
+                  <tr key={`${row.id || 'expense'}-${row.date}-${index}`}>
+                    <td data-label="날짜">{row.date || '-'}</td>
+                    <td data-label="카테고리">
+                      <span className="tag">{row.category || '미분류'}</span>
+                      {row.fixedId && <span className="mini-tag">고정</span>}
+                    </td>
+                    <td data-label="결제수단">
+                      {methodName(methods, row.paymentMethodId, row.paymentMethod)}
+                    </td>
+                    <td className="amount" data-label="금액">{formatKRW(row.amount)}</td>
+                    <td className="memo" data-label="메모">{row.memo || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

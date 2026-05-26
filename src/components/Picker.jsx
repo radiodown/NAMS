@@ -33,7 +33,7 @@ export default function Picker({ value = '', options = [], placeholder = '선택
         aria-label={ariaLabel || placeholder}
         onClick={() => setOpen((current) => !current)}
       >
-        <span>{selected?.label || placeholder}</span>
+        <span title={selected?.label || placeholder}>{selected?.label || placeholder}</span>
         <span className="picker-arrow" aria-hidden="true">v</span>
       </button>
 

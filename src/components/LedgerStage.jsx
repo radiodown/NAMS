@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { STAGE_META } from '../lib/categories'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
+import {
+  detectRecurringTransaction,
+  parseTransactionText,
+  recentEntrySuggestions,
+} from '../lib/inputAssist'
 import { isLoanInterestCategory } from '../lib/loanInterest'
-import { parseNumberInput } from '../lib/numberInput'
+import { parseAmountInput } from '../lib/numberInput'
 import CalendarInput from './CalendarInput'
 import FixedExpenses from './FixedExpenses'
 import LoanInterestCalculator from './LoanInterestCalculator'
@@ -47,6 +52,11 @@ function addCategoryTotals(map, rows) {
   })
 }
 
+function optionsWithCurrent(options, value) {
+  const current = String(value || '').trim()
+  return current && !options.includes(current) ? [...options, current] : options
+}
+
 export default function LedgerStage({
   type,
   entries,
@@ -54,8 +64,11 @@ export default function LedgerStage({
   updateEntry,
   removeEntry,
   fixed,
+  fixedIncome,
   fixedExpenseEntries = [],
   previousFixedExpenseEntries = [],
+  fixedIncomeEntries = [],
+  previousFixedIncomeEntries = [],
   categories,
   addCategory,
   updateCategory,
@@ -70,6 +83,11 @@ export default function LedgerStage({
   const [categoryForm, setCategoryForm] = useState(blankCategoryForm)
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
+  const [quickInput, setQuickInput] = useState('')
+  const [inlineEditId, setInlineEditId] = useState(null)
+  const [inlineDraft, setInlineDraft] = useState(blankForm)
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
 
   const categoryOptions = useMemo(() => {
     const current = form.category.trim()
@@ -91,13 +109,36 @@ export default function LedgerStage({
         .sort((a, b) => (b.date || '').localeCompare(a.date || '')),
     [entries, type]
   )
+  const activeFixedEntries = type === '지출' ? fixedExpenseEntries : type === '수입' ? fixedIncomeEntries : []
+  const previousActiveFixedEntries =
+    type === '지출'
+      ? previousFixedExpenseEntries
+      : type === '수입'
+        ? previousFixedIncomeEntries
+        : []
   const rows = useMemo(
     () => (type === '지출' ? ledgerRows.filter((e) => !e.fixedId) : ledgerRows),
     [ledgerRows, type]
   )
+  const rowIds = useMemo(() => rows.map((row) => row.id), [rows])
+  const selectedRowIds = useMemo(
+    () => rowIds.filter((id) => selectedIds.has(id)),
+    [rowIds, selectedIds]
+  )
+  const allRowsSelected = rowIds.length > 0 && selectedRowIds.length === rowIds.length
+  const recentSuggestions = useMemo(() => recentEntrySuggestions(rows), [rows])
+  const recurringCandidate = useMemo(
+    () =>
+      detectRecurringTransaction(
+        rows,
+        type,
+        type === '지출' ? fixed?.items || [] : type === '수입' ? fixedIncome?.items || [] : []
+      ),
+    [fixed?.items, fixedIncome?.items, rows, type]
+  )
   const totalRows = useMemo(
-    () => (type === '지출' ? [...ledgerRows, ...fixedExpenseEntries] : ledgerRows),
-    [fixedExpenseEntries, ledgerRows, type]
+    () => (type === '지출' || type === '수입' ? [...ledgerRows, ...activeFixedEntries] : ledgerRows),
+    [activeFixedEntries, ledgerRows, type]
   )
 
   const total = useMemo(() => totalRows.reduce((s, e) => s + e.amount, 0), [totalRows])
@@ -109,9 +150,10 @@ export default function LedgerStage({
   )
   const monthTotal = useMemo(() => currentMonthRows.reduce((s, e) => s + e.amount, 0), [currentMonthRows])
   const fixedMonthTotal = useMemo(
-    () => fixedExpenseEntries.reduce((s, e) => s + e.amount, 0),
-    [fixedExpenseEntries]
+    () => activeFixedEntries.reduce((s, e) => s + e.amount, 0),
+    [activeFixedEntries]
   )
+  const visibleMonthTotal = type === '수입' ? monthTotal + fixedMonthTotal : monthTotal
   const previousMonthRows = useMemo(
     () => ledgerRows.filter((e) => monthOf(e.date) === previousMonth),
     [ledgerRows, previousMonth]
@@ -121,12 +163,15 @@ export default function LedgerStage({
     [previousMonthRows]
   )
   const previousFixedMonthTotal = useMemo(
-    () => previousFixedExpenseEntries.reduce((s, e) => s + e.amount, 0),
-    [previousFixedExpenseEntries]
+    () => previousActiveFixedEntries.reduce((s, e) => s + e.amount, 0),
+    [previousActiveFixedEntries]
   )
-  const hasPreviousMonthRows = previousMonthRows.length > 0
-  const expenseTrend = monthTrend(monthTotal, previousMonthTotal)
-  const totalExpenseTrend = monthTrend(
+  const hasPreviousMonthRows = previousMonthRows.length > 0 || previousActiveFixedEntries.length > 0
+  const monthTrendInfo = monthTrend(
+    visibleMonthTotal,
+    hasPreviousMonthRows ? previousMonthTotal + previousFixedMonthTotal : 0
+  )
+  const totalFixedTrend = monthTrend(
     monthTotal + fixedMonthTotal,
     hasPreviousMonthRows ? previousMonthTotal + previousFixedMonthTotal : 0
   )
@@ -134,10 +179,10 @@ export default function LedgerStage({
     const currentMap = new Map()
     const previousMap = new Map()
     addCategoryTotals(currentMap, currentMonthRows)
-    if (type === '지출') addCategoryTotals(currentMap, fixedExpenseEntries)
+    if (type === '지출' || type === '수입') addCategoryTotals(currentMap, activeFixedEntries)
     if (hasPreviousMonthRows) {
       addCategoryTotals(previousMap, previousMonthRows)
-      if (type === '지출') addCategoryTotals(previousMap, previousFixedExpenseEntries)
+      if (type === '지출' || type === '수입') addCategoryTotals(previousMap, previousActiveFixedEntries)
     }
 
     return [...currentMap.entries()]
@@ -149,9 +194,9 @@ export default function LedgerStage({
       .sort((a, b) => b.amount - a.amount)
   }, [
     currentMonthRows,
-    fixedExpenseEntries,
+    activeFixedEntries,
     hasPreviousMonthRows,
-    previousFixedExpenseEntries,
+    previousActiveFixedEntries,
     previousMonthRows,
     type,
   ])
@@ -170,13 +215,41 @@ export default function LedgerStage({
     return () => window.clearInterval(timer)
   }, [categoryStats.length, currentMonth])
 
+  useEffect(() => {
+    const available = new Set(rowIds)
+    setSelectedIds((current) => {
+      const next = new Set([...current].filter((id) => available.has(id)))
+      return next.size === current.size ? current : next
+    })
+  }, [rowIds])
+
+  useEffect(() => {
+    if (editingId) return
+    const latest = rows[0]
+    if (!latest) return
+    setForm((current) => {
+      if (current.category || current.amount || current.memo || current.paymentMethodId) return current
+      return {
+        ...current,
+        category: latest.category || '',
+        paymentMethodId:
+          type === '지출'
+            ? latest.paymentMethodId ||
+              paymentMethods.find((method) => method.name === latest.paymentMethod)?.id ||
+              ''
+            : '',
+      }
+    })
+  }, [editingId, paymentMethods, rows, type])
+
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
+  const setInline = (key, value) => setInlineDraft((f) => ({ ...f, [key]: value }))
   const paymentName = (id, fallback) =>
     paymentMethods.find((method) => method.id === id)?.name || fallback || '미지정'
 
   function submit(e) {
     e.preventDefault()
-    const amount = parseNumberInput(form.amount)
+    const amount = parseAmountInput(form.amount)
     if (!form.date) {
       alert('날짜를 입력하세요.')
       return
@@ -211,7 +284,12 @@ export default function LedgerStage({
     } else {
       addEntry(payload)
     }
-    setForm({ ...blankForm(), date: form.date })
+    setForm({
+      ...blankForm(),
+      date: form.date,
+      category: payload.category,
+      paymentMethodId: type === '지출' ? payload.paymentMethodId || '' : '',
+    })
   }
 
   function startEdit(row) {
@@ -240,10 +318,226 @@ export default function LedgerStage({
     setForm(blankForm())
   }
 
+  function addQuickInput() {
+    const parsed = parseTransactionText(quickInput, {
+      type,
+      categories: categoryList,
+      paymentMethods,
+      entries: rows,
+    })
+    if (!Object.keys(parsed).length) return
+
+    const amount = parsed.amount || parseAmountInput(form.amount)
+    if (!amount || amount <= 0) {
+      alert('빠른 입력에 금액을 포함해 주세요.')
+      return
+    }
+
+    const paymentMethodId = type === '지출' ? parsed.paymentMethodId || form.paymentMethodId : ''
+    const payload = {
+      type,
+      date: parsed.date || form.date || todayStr(),
+      category: (parsed.category || form.category || '미분류').trim(),
+      amount,
+      memo: parsed.memo || form.memo.trim(),
+    }
+    if (type === '지출') {
+      payload.paymentMethodId = paymentMethodId
+      payload.paymentMethod = paymentName(paymentMethodId)
+      if (isLoanInterestCategory(payload.category) && loanInterestMode) {
+        payload.loanMethod = form.loanMethod
+        payload.loanPrincipal = form.loanPrincipal
+        payload.loanRate = form.loanRate
+        payload.loanMonths = form.loanMonths
+        payload.loanRound = form.loanRound
+        payload.loanGraceMonths = form.loanGraceMonths
+      }
+    }
+
+    addCategory?.(type, payload.category)
+    addEntry(payload)
+    setEditingId(null)
+    setQuickInput('')
+    setForm({
+      ...blankForm(),
+      date: payload.date,
+      category: payload.category,
+      paymentMethodId,
+    })
+  }
+
+  function applyRecent(row) {
+    setEditingId(null)
+    setInlineEditId(null)
+    setForm({
+      ...blankForm(),
+      date: form.date || todayStr(),
+      category: row.category || '',
+      paymentMethodId:
+        type === '지출'
+          ? row.paymentMethodId ||
+            paymentMethods.find((method) => method.name === row.paymentMethod)?.id ||
+            ''
+          : '',
+      amount: String(row.amount || ''),
+      memo: row.memo || '',
+    })
+  }
+
+  function duplicateRow(row) {
+    const payload = {
+      type,
+      date: todayStr(),
+      category: row.category || '미분류',
+      amount: Number(row.amount) || 0,
+      memo: row.memo || '',
+    }
+    if (!payload.amount) return
+    if (type === '지출') {
+      payload.paymentMethodId =
+        row.paymentMethodId ||
+        paymentMethods.find((method) => method.name === row.paymentMethod)?.id ||
+        ''
+      payload.paymentMethod = paymentName(payload.paymentMethodId, row.paymentMethod)
+      if (isLoanInterestCategory(row.category)) {
+        payload.loanMethod = row.loanMethod
+        payload.loanPrincipal = row.loanPrincipal
+        payload.loanRate = row.loanRate
+        payload.loanMonths = row.loanMonths
+        payload.loanRound = row.loanRound
+        payload.loanGraceMonths = row.loanGraceMonths
+      }
+    }
+    addCategory?.(type, payload.category)
+    addEntry(payload)
+  }
+
+  function startInlineEdit(row) {
+    setEditingId(null)
+    setInlineEditId(row.id)
+    setInlineDraft({
+      ...blankForm(),
+      date: row.date || todayStr(),
+      category: row.category || '',
+      paymentMethodId:
+        type === '지출'
+          ? row.paymentMethodId ||
+            paymentMethods.find((method) => method.name === row.paymentMethod)?.id ||
+            ''
+          : '',
+      amount: String(row.amount || ''),
+      memo: row.memo || '',
+    })
+  }
+
+  function cancelInlineEdit() {
+    setInlineEditId(null)
+    setInlineDraft(blankForm())
+  }
+
+  function saveInlineEdit(row) {
+    const amount = parseAmountInput(inlineDraft.amount)
+    if (!inlineDraft.date) {
+      alert('날짜를 입력하세요.')
+      return
+    }
+    if (!amount || amount <= 0) {
+      alert('금액을 0보다 큰 값으로 입력하세요.')
+      return
+    }
+    const payload = {
+      type,
+      date: inlineDraft.date,
+      category: inlineDraft.category.trim() || '미분류',
+      amount,
+      memo: inlineDraft.memo.trim(),
+    }
+    if (type === '지출') {
+      payload.paymentMethodId = inlineDraft.paymentMethodId
+      payload.paymentMethod = paymentName(inlineDraft.paymentMethodId, row.paymentMethod)
+    }
+    addCategory?.(type, payload.category)
+    updateEntry(row.id, payload)
+    cancelInlineEdit()
+  }
+
+  function addRecurringFixed() {
+    if (!recurringCandidate) return
+    const target = type === '지출' ? fixed : type === '수입' ? fixedIncome : null
+    if (!target?.addItem) return
+
+    const payload = {
+      name: recurringCandidate.memo || recurringCandidate.category,
+      category: recurringCandidate.category || '기타',
+      amount: recurringCandidate.amount,
+      day: recurringCandidate.day || '',
+    }
+    if (type === '지출') {
+      payload.paymentMethodId = recurringCandidate.paymentMethodId
+      payload.paymentMethod = paymentName(
+        recurringCandidate.paymentMethodId,
+        recurringCandidate.paymentMethod
+      )
+    }
+    addCategory?.(type, payload.category)
+    target.addItem(payload)
+  }
+
+  function toggleRowSelection(id, checked) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (checked) next.add(id)
+      else next.delete(id)
+      return next
+    })
+  }
+
+  function toggleAllRows(checked) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      rowIds.forEach((id) => {
+        if (checked) next.add(id)
+        else next.delete(id)
+      })
+      return next
+    })
+  }
+
+  function toggleSelectionMode() {
+    if (selectionMode) setSelectedIds(new Set())
+    setSelectionMode((current) => !current)
+  }
+
+  function handleLedgerListDoubleClick(e) {
+    if (e.target.closest?.('button,input,textarea,select,a,.picker,.calendar-input')) return
+    toggleSelectionMode()
+  }
+
+  function deleteSelectedRows() {
+    if (selectedRowIds.length === 0) return
+    if (!window.confirm(`선택한 ${selectedRowIds.length}개 ${type} 내역을 삭제할까요?`)) return
+
+    selectedRowIds.forEach((id) => removeEntry(id))
+    if (selectedRowIds.includes(editingId)) cancelEdit()
+    if (selectedRowIds.includes(inlineEditId)) cancelInlineEdit()
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      selectedRowIds.forEach((id) => next.delete(id))
+      return next
+    })
+  }
+
   function handleDelete(row) {
     if (window.confirm(`${row.date} · ${row.category} · ${formatKRW(row.amount)}\n이 항목을 삭제할까요?`)) {
       removeEntry(row.id)
       if (editingId === row.id) cancelEdit()
+      if (inlineEditId === row.id) cancelInlineEdit()
+      setSelectedIds((current) => {
+        if (!current.has(row.id)) return current
+        const next = new Set(current)
+        next.delete(row.id)
+        return next
+      })
     }
   }
 
@@ -279,9 +573,9 @@ export default function LedgerStage({
           <div className="label">{type} 전체 합계</div>
           <div className="value accent">
             {formatKRW(total)}
-            {type === '지출' && (
-              <span className={`month-change ${totalExpenseTrend.tone}`}>
-                ({totalExpenseTrend.mark} {totalExpenseTrend.percent}%)
+            {(type === '지출' || type === '수입') && (
+              <span className={`month-change ${totalFixedTrend.tone}`}>
+                ({totalFixedTrend.mark} {totalFixedTrend.percent}%)
               </span>
             )}
           </div>
@@ -289,10 +583,10 @@ export default function LedgerStage({
         <div className="stat-card">
           <div className="label">이번 달 ({currentMonth})</div>
           <div className="value">
-            {formatKRW(monthTotal)}
-            {type === '지출' && (
-              <span className={`month-change ${expenseTrend.tone}`}>
-                ({expenseTrend.mark} {expenseTrend.percent}%)
+            {formatKRW(visibleMonthTotal)}
+            {(type === '지출' || type === '수입') && (
+              <span className={`month-change ${monthTrendInfo.tone}`}>
+                ({monthTrendInfo.mark} {monthTrendInfo.percent}%)
               </span>
             )}
           </div>
@@ -314,6 +608,7 @@ export default function LedgerStage({
 
       {type === '지출' && fixed && (
         <FixedExpenses
+          type="지출"
           items={fixed.items}
           addItem={fixed.addItem}
           updateItem={fixed.updateItem}
@@ -322,6 +617,33 @@ export default function LedgerStage({
           addCategory={addCategory}
           paymentMethods={paymentMethods}
         />
+      )}
+
+      {type === '수입' && fixedIncome && (
+        <FixedExpenses
+          type="수입"
+          items={fixedIncome.items}
+          addItem={fixedIncome.addItem}
+          updateItem={fixedIncome.updateItem}
+          removeItem={fixedIncome.removeItem}
+          categories={categoryList}
+          addCategory={addCategory}
+        />
+      )}
+
+      {recurringCandidate && (
+        <div className="recurring-suggestion">
+          <div>
+            <strong>{recurringCandidate.memo || recurringCandidate.category}</strong>
+            <span>
+              {recurringCandidate.category} · {formatKRW(recurringCandidate.amount)} ·{' '}
+              {recurringCandidate.months}개월 반복
+            </span>
+          </div>
+          <button type="button" className="btn btn-sm btn-accent" onClick={addRecurringFixed}>
+            고정 위젯으로
+          </button>
+        </div>
       )}
 
       <div className="card">
@@ -337,6 +659,44 @@ export default function LedgerStage({
               </button>
             )}
           </div>
+        </div>
+        <div className="input-assist-panel">
+          <div className="quick-entry-bar">
+            <textarea
+              rows={1}
+              placeholder={
+                type === '지출'
+                  ? '오늘 점심 9,500 체크카드'
+                  : '25일 월급 300만'
+              }
+              value={quickInput}
+              onChange={(e) => setQuickInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  addQuickInput()
+                }
+              }}
+            />
+            <button type="button" className="btn btn-sm" onClick={addQuickInput}>
+              바로 추가
+            </button>
+          </div>
+          {recentSuggestions.length > 0 && (
+            <div className="assist-chip-row">
+              {recentSuggestions.map((row) => (
+                <button
+                  type="button"
+                  className="assist-chip"
+                  key={`${row.id}-${row.date}`}
+                  onClick={() => applyRecent(row)}
+                >
+                  <strong>{row.category}</strong>
+                  <span>{formatKRW(row.amount)}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <form className={`entry-form${type === '지출' ? ' expense-form' : ''}`} onSubmit={submit}>
           <div className="field">
@@ -369,6 +729,7 @@ export default function LedgerStage({
               min="0"
               step="1"
               decimal={false}
+              amount
               placeholder="0"
               value={form.amount}
               onChange={(value) => set('amount', value)}
@@ -500,17 +861,37 @@ export default function LedgerStage({
       )}
 
       <div className="card">
-        <h2 className="section-title">{type} 내역</h2>
+        <div className="ledger-list-head">
+          <h2 className="section-title">{type} 내역</h2>
+          {selectionMode && selectedRowIds.length > 0 && (
+            <button type="button" className="btn btn-sm btn-danger" onClick={deleteSelectedRows}>
+              선택 삭제 {selectedRowIds.length}
+            </button>
+          )}
+        </div>
         {rows.length === 0 ? (
           <div className="empty">
             <strong>아직 {type} 기록이 없습니다</strong>
             위 양식으로 첫 {type} 항목을 추가해 보세요.
           </div>
         ) : (
-          <div className="table-wrap">
+          <div
+            className={`table-wrap${inlineEditId ? ' has-inline-edit' : ''}`}
+            onDoubleClick={handleLedgerListDoubleClick}
+          >
             <table className="ledger-table">
               <thead>
                 <tr>
+                  {selectionMode && (
+                    <th className="ledger-select-head">
+                      <input
+                        type="checkbox"
+                        checked={allRowsSelected}
+                        onChange={(e) => toggleAllRows(e.target.checked)}
+                        aria-label={`${type} 내역 전체 선택`}
+                      />
+                    </th>
+                  )}
                   <th>날짜</th>
                   <th>카테고리</th>
                   {type === '지출' && <th>결제수단</th>}
@@ -520,56 +901,147 @@ export default function LedgerStage({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className={editingId === row.id ? 'editing' : undefined}>
-                    <td data-label="날짜">{row.date || '—'}</td>
-                    <td data-label="카테고리">
-                      <span className="tag">{row.category}</span>
-                      {isLoanInterestCategory(row.category) && <span className="mini-tag">이자계산기</span>}
-                      {row.fixedId && <span className="mini-tag">고정</span>}
-                    </td>
-                    {type === '지출' && (
-                      <td data-label="결제수단">
-                        {paymentName(row.paymentMethodId, row.paymentMethod)}
+                {rows.map((row) => {
+                  const inlineEditing = inlineEditId === row.id
+                  const inlineCategoryOptions = optionsWithCurrent(categoryList, inlineDraft.category)
+                  return (
+                    <tr
+                      key={row.id}
+                      className={
+                        inlineEditing
+                          ? 'editing inline-editing'
+                          : editingId === row.id
+                            ? 'editing'
+                            : undefined
+                      }
+                    >
+                      {selectionMode && (
+                        <td className="ledger-select-cell" data-label="선택">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(row.id)}
+                            onChange={(e) => toggleRowSelection(row.id, e.target.checked)}
+                            aria-label={`${row.date} ${row.category} 선택`}
+                          />
+                        </td>
+                      )}
+                      <td data-label="날짜">
+                        {inlineEditing ? (
+                          <CalendarInput
+                            value={inlineDraft.date}
+                            onChange={(value) => setInline('date', value)}
+                          />
+                        ) : (
+                          row.date || '—'
+                        )}
                       </td>
-                    )}
-                    <td className="amount" data-label="금액">{formatKRW(row.amount)}</td>
-                    <td className="memo" data-label="메모">{row.memo || '—'}</td>
-                    <td data-label="관리">
-                      <div className="row-actions">
-                        {type === '지출' ? (
-                          <>
-                            <button
-                              className="icon-btn"
-                              onClick={() => startEdit(row)}
-                              aria-label={`${row.date} ${row.category} 수정`}
-                              title="수정"
-                            >
-                              ✎
-                            </button>
-                            <button
-                              className="icon-btn danger"
-                              onClick={() => handleDelete(row)}
-                              aria-label={`${row.date} ${row.category} 삭제`}
-                              title="삭제"
-                            >
-                              ×
-                            </button>
-                          </>
+                      <td data-label="카테고리">
+                        {inlineEditing ? (
+                          <Picker
+                            value={inlineDraft.category}
+                            options={inlineCategoryOptions}
+                            placeholder="카테고리 선택"
+                            onChange={(value) => setInline('category', value)}
+                          />
                         ) : (
                           <>
-                            <button className="btn btn-sm" onClick={() => startEdit(row)}>
-                              수정
-                            </button>
-                            <button className="btn btn-sm btn-danger" onClick={() => handleDelete(row)}>
-                              삭제
-                            </button>
+                            <span className="tag">{row.category}</span>
+                            {isLoanInterestCategory(row.category) && (
+                              <span className="mini-tag">이자계산기</span>
+                            )}
+                            {row.fixedId && <span className="mini-tag">고정</span>}
                           </>
                         )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      {type === '지출' && (
+                        <td data-label="결제수단">
+                          {inlineEditing ? (
+                            <Picker
+                              value={inlineDraft.paymentMethodId}
+                              options={paymentOptions}
+                              placeholder="미지정"
+                              onChange={(value) => setInline('paymentMethodId', value)}
+                            />
+                          ) : (
+                            paymentName(row.paymentMethodId, row.paymentMethod)
+                          )}
+                        </td>
+                      )}
+                      <td className={inlineEditing ? undefined : 'amount'} data-label="금액">
+                        {inlineEditing ? (
+                          <NumberInput
+                            min="0"
+                            step="1"
+                            decimal={false}
+                            amount
+                            className="ledger-inline-input"
+                            value={inlineDraft.amount}
+                            onChange={(value) => setInline('amount', value)}
+                          />
+                        ) : (
+                          formatKRW(row.amount)
+                        )}
+                      </td>
+                      <td className="memo" data-label="메모">
+                        {inlineEditing ? (
+                          <input
+                            type="text"
+                            className="ledger-inline-input"
+                            value={inlineDraft.memo}
+                            onChange={(e) => setInline('memo', e.target.value)}
+                          />
+                        ) : (
+                          row.memo || '—'
+                        )}
+                      </td>
+                      <td data-label="관리">
+                        <div className="row-actions">
+                          {inlineEditing ? (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-accent"
+                                onClick={() => saveInlineEdit(row)}
+                              >
+                                저장
+                              </button>
+                              <button type="button" className="btn btn-sm" onClick={cancelInlineEdit}>
+                                취소
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                className="icon-btn"
+                                onClick={() => duplicateRow(row)}
+                                aria-label={`${row.date} ${row.category} 복제`}
+                                title="복제"
+                              >
+                                ⧉
+                              </button>
+                              <button
+                                className="icon-btn"
+                                onClick={() => startInlineEdit(row)}
+                                aria-label={`${row.date} ${row.category} 수정`}
+                                title="수정"
+                              >
+                                ✎
+                              </button>
+                              <button
+                                className="icon-btn danger"
+                                onClick={() => handleDelete(row)}
+                                aria-label={`${row.date} ${row.category} 삭제`}
+                                title="삭제"
+                              >
+                                ×
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
