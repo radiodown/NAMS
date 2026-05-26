@@ -3405,6 +3405,136 @@ td.memo {
   font-weight: 900;
 }
 
+.invest-report-pie-wrap {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.85fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.invest-report-pie-chart {
+  position: relative;
+  min-width: 0;
+  height: 260px;
+}
+
+.invest-report-pie-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 92px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.invest-report-pie-center span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.invest-report-pie-center strong {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.invest-report-pie-empty {
+  height: 100%;
+  min-height: 190px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.invest-report-pie-legend {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+
+.invest-report-pie-chip {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.invest-report-pie-chip i {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--chip);
+}
+
+.invest-report-pie-chip-main,
+.invest-report-pie-chip-meta {
+  min-width: 0;
+}
+
+.invest-report-pie-chip-main strong,
+.invest-report-pie-chip-main span,
+.invest-report-pie-chip-meta strong,
+.invest-report-pie-chip-meta span {
+  display: block;
+}
+
+.invest-report-pie-chip-main strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invest-report-pie-chip-main span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invest-report-pie-chip-meta {
+  text-align: right;
+}
+
+.invest-report-pie-chip-meta strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.invest-report-pie-chip-meta span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .invest-report-bars {
   display: flex;
   flex-direction: column;
@@ -3525,6 +3655,35 @@ td.memo {
   line-height: 1.35;
 }
 
+.invest-report-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.invest-report-action {
+  padding: 9px;
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.invest-report-action strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.invest-report-action span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .invest-report-mini-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3553,8 +3712,16 @@ td.memo {
   box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
+.invest-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
 .invest-section {
-  margin-bottom: 18px;
+  margin-bottom: 0;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--accent, #64748b) 18%, var(--border));
 }
 
 .invest-section-head {
@@ -3595,6 +3762,15 @@ td.memo {
   font-size: 13px;
   font-weight: 700;
   color: var(--muted);
+}
+
+.invest-section-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  text-align: right;
 }
 
 .invest-grid {
@@ -4546,6 +4722,14 @@ td.memo {
 
   .invest-report-card-wide {
     grid-row: auto;
+  }
+
+  .invest-report-pie-wrap {
+    grid-template-columns: 1fr;
+  }
+
+  .invest-report-pie-chart {
+    height: 230px;
   }
 
   .invest-stock-chart-head {

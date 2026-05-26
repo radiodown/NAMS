@@ -1,8 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -55,6 +58,8 @@ const QUOTE_STAGGER_MS = 1400
 const QUOTE_FRESH_MS = 1000 * 60 * 10
 const BITCOIN_SYMBOL = 'BTC-KRW'
 const ASSET_TYPE_OPTIONS = ['현금성자산', '금', '외화', '채권', '부동산', '기타']
+const STABLE_ASSET_KINDS = new Set(['예금', '적금', '자산'])
+const MARKET_ASSET_KINDS = new Set(['주식', '비트코인'])
 
 // Long-press duration before a touch becomes a widget drag, and how far the
 // finger may stray during that wait before it counts as a scroll instead.
@@ -216,23 +221,25 @@ function groupedBy(positions, total, keyFn) {
     .sort((a, b) => b.value - a.value)
 }
 
-function buildStockReport(products) {
+function buildMarketReport(products, today) {
   const rates = exchangeRateMap(products)
   const positions = (products || [])
-    .filter((p) => p.kind === '주식')
+    .filter((p) => p.kind === '주식' || p.kind === '비트코인')
     .map((p, index) => {
-      const metrics = stockMetrics(p, rates)
+      const metrics = p.kind === '주식' ? stockMetrics(p, rates) : productMetrics(p, today, rates)
       const currency = metrics.currency
+      const symbol = quoteSymbolForProduct(p)
       const missingFx = currency !== 'KRW' && !metrics.exchangeRate
-      const missingQuote = !(p.quoteSymbol || p.symbol) || !p.quoteTime || metrics.currentPrice <= 0
+      const missingQuote = !symbol || !p.quoteTime || metrics.currentPrice <= 0
       const staleQuote = p.quoteTime ? isQuoteStale(p.quoteTime) : false
       return {
         id: p.id,
-        name: p.name,
-        symbol: p.quoteSymbol || p.symbol || '',
+        kind: p.kind,
+        name: p.name || p.kind,
+        symbol,
         color: p.color || REPORT_COLORS[index % REPORT_COLORS.length],
         currency,
-        market: marketLabel(p.quoteSymbol || p.symbol, currency),
+        market: p.kind === '비트코인' ? '가상자산' : marketLabel(symbol, currency),
         current: metrics.current,
         cost: metrics.cost,
         profit: metrics.profit,
@@ -275,6 +282,8 @@ function buildStockReport(products) {
   const missingFxCount = positions.filter((pos) => pos.missingFx).length
   const missingQuoteCount = positions.filter((pos) => pos.missingQuote).length
   const staleQuoteCount = positions.filter((pos) => pos.staleQuote).length
+  const winningCount = positions.filter((pos) => pos.profit >= 0).length
+  const losingCount = positions.length - winningCount
   const concentrationLevel =
     topWeight >= 50 || top3Weight >= 75 ? 'high' : topWeight >= 35 || top3Weight >= 60 ? 'mid' : 'low'
   const fxLevel = fxWeight >= 50 ? 'high' : fxWeight >= 25 ? 'mid' : 'low'
@@ -324,6 +333,50 @@ function buildStockReport(products) {
   if (best) notes.push(`수익 기여 1위는 ${best.name}입니다.`)
   if (worst && worst.profit < 0) notes.push(`손실 기여 1위는 ${worst.name}입니다.`)
   if (notes.length === 0) notes.push('분산과 데이터 상태가 비교적 안정적입니다.')
+  const actions = []
+  if (topWeight >= 50) {
+    actions.push({
+      title: '단일 자산 집중',
+      detail: `${positions[0]?.name || '상위 자산'} 하나가 절반 이상입니다. 추가 매수 전 비중 조절을 먼저 보는 편이 좋습니다.`,
+    })
+  } else if (topWeight >= 35) {
+    actions.push({
+      title: '상위 비중 주의',
+      detail: `${positions[0]?.name || '상위 자산'} 비중이 높은 편입니다. 같은 방향으로 움직이는 자산이 더 있는지 확인하세요.`,
+    })
+  } else {
+    actions.push({
+      title: '집중도 안정',
+      detail: '한 자산에 과하게 몰린 구조는 아닙니다. 신규 편입은 목표 비중을 기준으로 비교하기 좋습니다.',
+    })
+  }
+  if (fxWeight >= 25) {
+    actions.push({
+      title: '환율 영향 확인',
+      detail: `외화 노출이 ${formatPct(fxWeight)}라 환율 변동이 수익률을 흔들 수 있습니다.`,
+    })
+  }
+  if (lossWeight >= 25 || totalReturnPct < 0) {
+    actions.push({
+      title: '손실 구간 점검',
+      detail: `손실 자산 비중은 ${formatPct(lossWeight)}입니다. 물타기보다 보유 이유가 유지되는지 먼저 확인하세요.`,
+    })
+  } else if (best) {
+    actions.push({
+      title: '수익 기여 확인',
+      detail: `${best.name}이 현재 수익에 가장 크게 기여합니다. 비중이 과도해졌는지도 함께 보세요.`,
+    })
+  }
+  if (missingFxCount || missingQuoteCount || staleQuoteCount) {
+    actions.push({
+      title: '데이터 보완',
+      detail: '시세나 환율이 비어 있거나 오래된 항목이 있어 분석 정확도가 낮아질 수 있습니다.',
+    })
+  }
+
+  const leaderText = positions[0] ? `${positions[0].name} ${formatPct(topWeight)}` : '상위 자산 없음'
+  const resultText =
+    totalProfit >= 0 ? `${formatKRW(totalProfit)} 평가이익` : `${formatKRW(Math.abs(totalProfit))} 평가손실`
 
   return {
     positions,
@@ -336,10 +389,8 @@ function buildStockReport(products) {
     risks,
     rating,
     notes,
-    summary:
-      totalProfit >= 0
-        ? `현재 주식 포트폴리오는 ${formatKRW(totalProfit)} 평가이익 구간입니다.`
-        : `현재 주식 포트폴리오는 ${formatKRW(Math.abs(totalProfit))} 평가손실 구간입니다.`,
+    actions,
+    summary: `가격 변동 자산은 현재 ${resultText} 구간입니다. 가장 큰 비중은 ${leaderText}, 상위 3개 합산은 ${formatPct(top3Weight)}입니다. 수익권 ${winningCount}개, 손실권 ${losingCount}개로 구성되어 있습니다.`,
   }
 }
 
@@ -400,7 +451,29 @@ export default function InvestmentStage({ investments }) {
   // so including them does not skew the numbers.
   const totals = useMemo(() => summarize(rawItems, today), [rawItems, today])
   const rates = useMemo(() => exchangeRateMap(rawItems), [rawItems])
-  const stockReport = useMemo(() => buildStockReport(rawItems), [rawItems])
+  const marketReport = useMemo(() => buildMarketReport(rawItems, today), [rawItems, today])
+  const widgetGroups = useMemo(() => {
+    const groupMeta = [
+      {
+        id: 'stable',
+        title: '예금 · 적금 · 현금자산',
+        desc: '원금과 현금 흐름 중심',
+        color: '#0f766e',
+        items: items.filter((p) => STABLE_ASSET_KINDS.has(p.kind)),
+      },
+      {
+        id: 'market',
+        title: '주식 · 비트코인',
+        desc: '가격 변동 자산',
+        color: '#d97706',
+        items: items.filter((p) => MARKET_ASSET_KINDS.has(p.kind)),
+      },
+    ]
+    return groupMeta.map((group) => ({
+      ...group,
+      total: group.items.reduce((sum, p) => sum + productMetrics(p, today, rates).current, 0),
+    }))
+  }, [items, rates, today])
 
   useEffect(() => {
     if (!activeStockId) return
@@ -1456,7 +1529,7 @@ export default function InvestmentStage({ investments }) {
         </div>
       </div>
 
-      {analysisOpen && <InvestmentReport report={stockReport} />}
+      {analysisOpen && <InvestmentReport report={marketReport} />}
 
       {items.length === 0 ? (
         <div className="invest-empty-widget">
@@ -1464,33 +1537,58 @@ export default function InvestmentStage({ investments }) {
           <span>+ 버튼으로 예금, 적금, 주식, 비트코인, 자산을 추가하세요.</span>
         </div>
       ) : (
-        <div className="invest-widget-grid">
-          {items.map((p) => (
-            <Fragment key={p.id}>
-              <ProductCard
-                product={p}
-                today={today}
-                rates={rates}
-                editing={editingId === p.id}
-                selected={activeStockId === p.id}
-                dragging={draggingId === p.id}
-                dropTarget={dropId === p.id}
-                quoteStatus={quoteStatus[p.id]}
-                onClick={() => toggleStockChart(p)}
-                onEdit={() => startEdit(p)}
-                onRemove={() => handleRemove(p)}
-                onDragStart={(e) => handleDragStart(e, p)}
-                onDragEnd={handleDragEnd}
-                onDragOver={(e) => handleDragOver(e, p)}
-                onDragLeave={(e) => handleDragLeave(e, p)}
-                onDrop={(e) => handleDrop(e, p)}
-                onTouchStart={(e) => handleTouchStart(e, p)}
-              />
-              {activeStockId === p.id && p.kind === '주식' && (
-                <StockChartPanel product={p} onClose={() => setActiveStockId(null)} />
-              )}
-            </Fragment>
-          ))}
+        <div className="invest-section-stack">
+          {widgetGroups
+            .filter((group) => group.items.length > 0)
+            .map((group) => (
+              <section
+                className={`invest-section invest-section-${group.id}`}
+                key={group.id}
+                style={{ '--accent': group.color }}
+              >
+                <div className="invest-section-head">
+                  <div>
+                    <div className="invest-section-title">
+                      <span className="invest-dot" style={{ background: group.color }} />
+                      {group.title}
+                    </div>
+                    <div className="invest-section-total">{group.desc}</div>
+                  </div>
+                  <div className="invest-section-meta">
+                    <span className="invest-section-count">{group.items.length}개</span>
+                    <span className="invest-section-total">{formatKRW(group.total)}</span>
+                  </div>
+                </div>
+                <div className="invest-widget-grid">
+                  {group.items.map((p) => (
+                    <Fragment key={p.id}>
+                      <ProductCard
+                        product={p}
+                        today={today}
+                        rates={rates}
+                        editing={editingId === p.id}
+                        selected={activeStockId === p.id}
+                        dragging={draggingId === p.id}
+                        dropTarget={dropId === p.id}
+                        quoteStatus={quoteStatus[p.id]}
+                        onClick={() => toggleStockChart(p)}
+                        onEdit={() => startEdit(p)}
+                        onRemove={() => handleRemove(p)}
+                        onDragStart={(e) => handleDragStart(e, p)}
+                        onDragEnd={handleDragEnd}
+                        onDragOver={(e) => handleDragOver(e, p)}
+                        onDragLeave={(e) => handleDragLeave(e, p)}
+                        onDrop={(e) => handleDrop(e, p)}
+                        onTouchStart={(e) => handleTouchStart(e, p)}
+                      />
+                      {activeStockId === p.id && p.kind === '주식' && (
+                        <StockChartPanel product={p} onClose={() => setActiveStockId(null)} />
+                      )}
+                    </Fragment>
+                  ))}
+                </div>
+              </section>
+            ))}
         </div>
       )}
 
@@ -1516,18 +1614,20 @@ function InvestmentReport({ report }) {
     return (
       <section className="invest-report">
         <div className="invest-report-empty">
-          <strong>주식 리포트 없음</strong>
-          <span>주식 위젯이 추가되면 포트폴리오 분석이 표시됩니다.</span>
+          <strong>시장성 자산 리포트 없음</strong>
+          <span>주식 또는 비트코인 위젯이 추가되면 포트폴리오 분석이 표시됩니다.</span>
         </div>
       </section>
     )
   }
 
+  const piePositions = report.positions.filter((pos) => pos.current > 0)
+
   return (
     <section className="invest-report">
       <div className="invest-report-head">
         <div>
-          <div className="invest-report-kicker">주식 포트폴리오</div>
+          <div className="invest-report-kicker">시장성 자산 포트폴리오</div>
           <h3>투자 리포트</h3>
         </div>
         <span className={`invest-risk-pill ${report.rating.tone}`}>{report.rating.label}</span>
@@ -1535,11 +1635,11 @@ function InvestmentReport({ report }) {
 
       <div className="invest-report-stat-grid">
         <div className="invest-report-stat">
-          <span>주식 평가액</span>
+          <span>시장성 평가액</span>
           <strong>{formatKRW(report.totalCurrent)}</strong>
         </div>
         <div className="invest-report-stat">
-          <span>주식 원금</span>
+          <span>투입 원금</span>
           <strong>{formatKRW(report.totalCost)}</strong>
         </div>
         <div className="invest-report-stat">
@@ -1557,18 +1657,67 @@ function InvestmentReport({ report }) {
 
       <div className="invest-report-grid">
         <div className="invest-report-card invest-report-card-wide">
-          <h4>종목 분포</h4>
-          <div className="invest-report-bars">
-            {report.positions.map((pos, index) => (
-              <ReportBar
-                key={pos.id}
-                color={pos.color || REPORT_COLORS[index % REPORT_COLORS.length]}
-                label={pos.name}
-                meta={`${pos.symbol || pos.market} · ${formatKRW(pos.current)}`}
-                value={formatPct(pos.weight)}
-                weight={pos.weight}
-              />
-            ))}
+          <h4>자산 비중</h4>
+          <div className="invest-report-pie-wrap">
+            <div className="invest-report-pie-chart" aria-label="시장성 자산 비중 파이 차트">
+              {piePositions.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={piePositions}
+                        dataKey="current"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius="48%"
+                        outerRadius="76%"
+                        paddingAngle={2}
+                        stroke="#fff"
+                        strokeWidth={2}
+                        label={({ percent }) => (percent >= 0.08 ? `${Math.round(percent * 100)}%` : '')}
+                        labelLine={false}
+                      >
+                        {piePositions.map((pos, index) => (
+                          <Cell key={pos.id} fill={pos.color || REPORT_COLORS[index % REPORT_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value, _name, item) => [
+                          formatKRW(value),
+                          item?.payload?.name || '평가액',
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="invest-report-pie-center">
+                    <span>총 평가액</span>
+                    <strong>{compactKRW(report.totalCurrent)}</strong>
+                  </div>
+                </>
+              ) : (
+                <div className="invest-report-pie-empty">평가액이 입력되면 차트가 표시됩니다.</div>
+              )}
+            </div>
+            <div className="invest-report-pie-legend">
+              {report.positions.map((pos, index) => (
+                <div
+                  className="invest-report-pie-chip"
+                  key={pos.id}
+                  style={{ '--chip': pos.color || REPORT_COLORS[index % REPORT_COLORS.length] }}
+                >
+                  <i />
+                  <div className="invest-report-pie-chip-main">
+                    <strong>{pos.name}</strong>
+                    <span>{pos.symbol || pos.market}</span>
+                  </div>
+                  <div className="invest-report-pie-chip-meta">
+                    <strong>{formatPct(pos.weight)}</strong>
+                    <span>{formatKRW(pos.current)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1594,6 +1743,14 @@ function InvestmentReport({ report }) {
           <div className="invest-report-notes">
             {report.notes.map((note) => (
               <span key={note}>{note}</span>
+            ))}
+          </div>
+          <div className="invest-report-actions">
+            {report.actions.map((action) => (
+              <div className="invest-report-action" key={action.title}>
+                <strong>{action.title}</strong>
+                <span>{action.detail}</span>
+              </div>
             ))}
           </div>
         </div>

@@ -3,6 +3,10 @@ export function normalizeStockSymbol(value) {
   if (!symbol) return ''
   if (/^\d{6}$/.test(symbol)) return `${symbol}.KS`
   if (/^\d[0-9A-Z]{5}$/.test(symbol)) return `${symbol}.KS`
+  const classMatch = symbol.match(/^([A-Z]{1,6})[./]([A-Z])$/)
+  if (classMatch && !['F', 'L', 'T', 'V'].includes(classMatch[2])) {
+    return `${classMatch[1]}-${classMatch[2]}`
+  }
   return symbol
 }
 
@@ -23,6 +27,7 @@ const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
 const NAVER_ETF_PAGE_SIZE = 100
 const NAVER_ETF_MAX_PAGES = 15
 const STOCK_SEARCH_PRESETS = [
+  { symbol: 'BRK-B', name: 'Berkshire Hathaway Inc. Class B', keywords: ['berkshire', 'berkshire hathaway', 'brk.b', 'brkb', '워런버핏', '버크셔'], currency: 'USD', exchange: 'NYSE' },
   { symbol: '005930.KS', name: '삼성전자', keywords: ['samsung', 'samsung electronics'], currency: 'KRW', exchange: 'KOSPI' },
   { symbol: '000660.KS', name: 'SK하이닉스', keywords: ['sk hynix', '하이닉스'], currency: 'KRW', exchange: 'KOSPI' },
   { symbol: '373220.KS', name: 'LG에너지솔루션', keywords: ['lg energy solution', '엘지에너지솔루션'], currency: 'KRW', exchange: 'KOSPI' },
@@ -226,6 +231,13 @@ function normalizeSearchItem(item) {
   }
 }
 
+function yahooSearchQuery(query) {
+  const raw = String(query || '').trim()
+  if (/^[A-Z]{1,6}[./-][A-Z]$/i.test(raw)) return normalizeStockSymbol(raw)
+  if (/^\d[0-9A-Z]{5}(?:\.(?:KS|KQ))?$/i.test(raw)) return normalizeStockSymbol(raw)
+  return raw
+}
+
 function localStockSearch(query) {
   const compact = compactSearchText(query)
   const normalizedSymbol = normalizeStockSymbol(query)
@@ -367,7 +379,7 @@ async function naverEtfSearch(query, options = {}) {
 }
 
 async function yahooStockSearch(query, options = {}) {
-  const data = await fetchJson(yahooSearchUrl(query, options))
+  const data = await fetchJson(yahooSearchUrl(yahooSearchQuery(query), options))
   return (data?.quotes || [])
     .filter((item) => ['EQUITY', 'ETF'].includes(String(item?.quoteType || '').toUpperCase()))
     .map(normalizeSearchItem)
