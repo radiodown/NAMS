@@ -54,6 +54,11 @@ const STOCK_CHART_RANGES = [
   { label: '1년', value: '1y', interval: '1wk' },
 ]
 const REPORT_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#0891b2', '#7c3aed']
+const PORTFOLIO_BUCKETS = {
+  safe: { id: 'safe', label: '안전자산', color: '#16a34a', desc: '예금, 적금, 현금성·채권 자산' },
+  risk: { id: 'risk', label: '위험자산', color: '#dc2626', desc: '주식, 비트코인처럼 가격 변동이 큰 자산' },
+  alt: { id: 'alt', label: '대체자산', color: '#d97706', desc: '금, 부동산, 기타 실물·대체 자산' },
+}
 const STALE_QUOTE_MS = 1000 * 60 * 60 * 72
 const QUOTE_REFRESH_MS = STOCK_QUOTE_REFRESH_MS
 const QUOTE_STAGGER_MS = 1400
@@ -225,8 +230,61 @@ function groupedBy(positions, total, keyFn) {
     .sort((a, b) => b.value - a.value)
 }
 
+function portfolioBucketForProduct(product) {
+  if (product?.kind === '주식' || product?.kind === '비트코인') return PORTFOLIO_BUCKETS.risk
+  if (product?.kind === '예금' || product?.kind === '적금') return PORTFOLIO_BUCKETS.safe
+  if (product?.kind === '자산') {
+    const type = String(product.assetType || product.name || '').toLowerCase()
+    if (/현금|cash|예금|적금|채권|bond|외화|달러|usd|엔화|jpy/.test(type)) return PORTFOLIO_BUCKETS.safe
+    return PORTFOLIO_BUCKETS.alt
+  }
+  return PORTFOLIO_BUCKETS.alt
+}
+
+function buildPortfolioAllocation(products, today, rates) {
+  const items = (products || [])
+    .filter((p) => p.kind !== '환율')
+    .map((p, index) => {
+      const metrics = productMetrics(p, today, rates)
+      const bucket = portfolioBucketForProduct(p)
+      return {
+        id: p.id || `${p.kind}-${index}`,
+        name: p.name || p.kind,
+        kind: p.kind,
+        current: metrics.current,
+        bucket,
+      }
+    })
+    .filter((item) => item.current > 0)
+
+  const total = items.reduce((sum, item) => sum + item.current, 0)
+  const buckets = Object.values(PORTFOLIO_BUCKETS).map((bucket) => {
+    const bucketItems = items.filter((item) => item.bucket.id === bucket.id)
+    const value = bucketItems.reduce((sum, item) => sum + item.current, 0)
+    return {
+      ...bucket,
+      value,
+      count: bucketItems.length,
+      weight: total > 0 ? (value / total) * 100 : 0,
+      items: bucketItems,
+    }
+  })
+  const byId = Object.fromEntries(buckets.map((bucket) => [bucket.id, bucket]))
+  const safeWeight = byId.safe?.weight || 0
+  const riskWeight = byId.risk?.weight || 0
+  const altWeight = byId.alt?.weight || 0
+  const allocationLevel = riskWeight >= 70 ? 'high' : riskWeight >= 45 ? 'mid' : 'low'
+  const summary =
+    total > 0
+      ? `전체 투자 포트폴리오는 안전자산 ${formatPct(safeWeight)}, 위험자산 ${formatPct(riskWeight)}, 대체자산 ${formatPct(altWeight)}로 구성되어 있습니다.`
+      : '투자 포트폴리오 데이터가 없습니다.'
+
+  return { items, total, buckets, byId, safeWeight, riskWeight, altWeight, allocationLevel, summary }
+}
+
 function buildMarketReport(products, today) {
   const rates = exchangeRateMap(products)
+  const allocation = buildPortfolioAllocation(products, today, rates)
   const positions = (products || [])
     .filter((p) => p.kind === '주식' || p.kind === '비트코인')
     .map((p, index) => {
@@ -282,6 +340,12 @@ function buildMarketReport(products, today) {
           totalCurrent) *
         100
       : 0
+  const lossCurrent = positions
+    .filter((pos) => pos.profit < 0)
+    .reduce((sum, pos) => sum + pos.current, 0)
+  const lossAmount = positions
+    .filter((pos) => pos.profit < 0)
+    .reduce((sum, pos) => sum + Math.abs(pos.profit), 0)
 
   const missingFxCount = positions.filter((pos) => pos.missingFx).length
   const missingQuoteCount = positions.filter((pos) => pos.missingQuote).length
@@ -296,6 +360,17 @@ function buildMarketReport(products, today) {
   const dataLevel = missingFxCount || missingQuoteCount ? 'high' : staleQuoteCount ? 'mid' : 'low'
   const risks = [
     {
+      name: '전체 배분',
+      value: `위험 ${formatPct(allocation.riskWeight)} · 안전 ${formatPct(allocation.safeWeight)}`,
+      detail:
+        allocation.riskWeight >= 70
+          ? '위험자산 비중이 높아 시장 변동에 민감한 구조입니다.'
+          : allocation.riskWeight >= 45
+            ? '위험자산과 안전자산의 균형을 주기적으로 점검할 구간입니다.'
+            : '안전자산 비중이 비교적 높은 구조입니다.',
+      ...riskLevel(allocation.allocationLevel),
+    },
+    {
       name: '집중도',
       value: `1위 ${formatPct(topWeight)} · 상위3 ${formatPct(top3Weight)}`,
       detail: positions[0] ? `${positions[0].name} 비중이 가장 큽니다.` : '종목 데이터 없음',
@@ -309,8 +384,11 @@ function buildMarketReport(products, today) {
     },
     {
       name: '손실 노출',
-      value: formatPct(lossWeight),
-      detail: totalProfit >= 0 ? '전체 평가손익은 플러스입니다.' : '전체 평가손익은 마이너스입니다.',
+      value: `${formatPct(lossWeight)} · ${formatKRW(lossCurrent)}`,
+      detail:
+        lossAmount > 0
+          ? `손실 중인 자산 ${losingCount}개, 평가손실 합계는 ${formatKRW(lossAmount)}입니다.`
+          : '손실 중인 자산이 없습니다.',
       ...riskLevel(lossLevel),
     },
     {
@@ -331,7 +409,8 @@ function buildMarketReport(products, today) {
   const best = positions.length ? [...positions].sort((a, b) => b.profit - a.profit)[0] : null
   const worst = positions.length ? [...positions].sort((a, b) => a.profit - b.profit)[0] : null
   const notes = []
-  if (positions.length < 3) notes.push('보유 종목 수가 적어 분산 효과가 제한적입니다.')
+  if (positions.length === 0) notes.push('주식·비트코인 같은 위험자산은 아직 등록되지 않았습니다.')
+  else if (positions.length < 3) notes.push('시장성 자산 수가 적어 분산 효과가 제한적입니다.')
   if (topWeight >= 35) notes.push(`${positions[0]?.name || '상위 종목'} 비중이 ${formatPct(topWeight)}입니다.`)
   if (fxWeight >= 25) notes.push(`외화 자산 비중이 ${formatPct(fxWeight)}입니다.`)
   if (best) notes.push(`수익 기여 1위는 ${best.name}입니다.`)
@@ -381,6 +460,10 @@ function buildMarketReport(products, today) {
   const leaderText = positions[0] ? `${positions[0].name} ${formatPct(topWeight)}` : '상위 자산 없음'
   const resultText =
     totalProfit >= 0 ? `${formatKRW(totalProfit)} 평가이익` : `${formatKRW(Math.abs(totalProfit))} 평가손실`
+  const marketSummary =
+    positions.length > 0
+      ? `가격 변동 자산은 현재 ${resultText} 구간입니다. 가장 큰 비중은 ${leaderText}, 상위 3개 합산은 ${formatPct(top3Weight)}입니다. 수익권 ${winningCount}개, 손실권 ${losingCount}개로 구성되어 있습니다.`
+      : `${allocation.summary} 가격 변동 자산은 아직 등록되지 않았습니다.`
 
   return {
     positions,
@@ -388,13 +471,23 @@ function buildMarketReport(products, today) {
     totalCost,
     totalProfit,
     totalReturnPct,
+    portfolioTotal: allocation.total,
+    allocationBuckets: allocation.buckets,
+    allocationSummary: allocation.summary,
+    safeWeight: allocation.safeWeight,
+    riskWeight: allocation.riskWeight,
+    altWeight: allocation.altWeight,
+    lossAmount,
+    lossCurrent,
+    lossWeight,
+    losingCount,
     currencyGroups: groupedBy(positions, totalCurrent, (pos) => pos.currency),
     marketGroups: groupedBy(positions, totalCurrent, (pos) => pos.market),
     risks,
     rating,
     notes,
     actions,
-    summary: `가격 변동 자산은 현재 ${resultText} 구간입니다. 가장 큰 비중은 ${leaderText}, 상위 3개 합산은 ${formatPct(top3Weight)}입니다. 수익권 ${winningCount}개, 손실권 ${losingCount}개로 구성되어 있습니다.`,
+    summary: marketSummary,
   }
 }
 
@@ -477,6 +570,10 @@ export default function InvestmentStage({ investments }) {
     return groupMeta.map((group) => ({
       ...group,
       total: group.items.reduce((sum, p) => sum + productMetrics(p, today, rates).current, 0),
+      monthlyOutflow: group.items.reduce((sum, p) => {
+        if (p.kind !== '적금') return sum
+        return sum + (Number(p.monthly) || 0)
+      }, 0),
     }))
   }, [items, rates, today])
 
@@ -783,7 +880,7 @@ export default function InvestmentStage({ investments }) {
     setStockSearchOpen(false)
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault()
     const { kind } = form
     if (!form.name.trim()) {
@@ -844,9 +941,13 @@ export default function InvestmentStage({ investments }) {
     } else if (kind === '비트코인') {
       const quantity = parseNumberInput(form.bitcoinAmount)
       const buyPrice = parseAmountInput(form.bitcoinBuyPrice)
-      const currentPrice = form.currentPrice === '' ? buyPrice : parseAmountInput(form.currentPrice)
       if (!quantity || quantity <= 0) return alert('보유 수량을 입력하세요.')
       if (!buyPrice || buyPrice <= 0) return alert('평균 매수가를 입력하세요.')
+      const quote =
+        form.currentPrice === ''
+          ? await fetchStockQuote(BITCOIN_SYMBOL).catch(() => null)
+          : null
+      const currentPrice = form.currentPrice === '' ? Number(quote?.price) || buyPrice : parseAmountInput(form.currentPrice)
       product = {
         kind,
         name: form.name.trim(),
@@ -859,6 +960,7 @@ export default function InvestmentStage({ investments }) {
         quoteSymbol: BITCOIN_SYMBOL,
         quoteCurrency: 'KRW',
         currentPrice,
+        ...(quote ? { quoteTime: quote.fetchedAt || quote.cachedAt || quote.time } : {}),
         taxBenefit,
       }
     } else if (kind === '자산') {
@@ -1628,6 +1730,9 @@ export default function InvestmentStage({ investments }) {
                     <div className="invest-section-total">{group.desc}</div>
                   </div>
                   <div className="invest-section-meta">
+                    {group.monthlyOutflow > 0 && (
+                      <span className="invest-section-monthly">월 납입 {formatKRW(group.monthlyOutflow)}</span>
+                    )}
                     <span className="invest-section-count">{group.items.length}개</span>
                     <span className="invest-section-total">{formatKRW(group.total)}</span>
                   </div>
@@ -1683,12 +1788,12 @@ export default function InvestmentStage({ investments }) {
 }
 
 function InvestmentReport({ report }) {
-  if (report.positions.length === 0) {
+  if (report.portfolioTotal <= 0) {
     return (
       <section className="invest-report">
         <div className="invest-report-empty">
-          <strong>시장성 자산 리포트 없음</strong>
-          <span>주식 또는 비트코인 위젯이 추가되면 포트폴리오 분석이 표시됩니다.</span>
+          <strong>투자 리포트 없음</strong>
+          <span>투자 위젯이 추가되면 안전자산과 위험자산 분석이 표시됩니다.</span>
         </div>
       </section>
     )
@@ -1700,13 +1805,17 @@ function InvestmentReport({ report }) {
     <section className="invest-report">
       <div className="invest-report-head">
         <div>
-          <div className="invest-report-kicker">시장성 자산 포트폴리오</div>
+          <div className="invest-report-kicker">전체 투자 포트폴리오</div>
           <h3>투자 리포트</h3>
         </div>
         <span className={`invest-risk-pill ${report.rating.tone}`}>{report.rating.label}</span>
       </div>
 
       <div className="invest-report-stat-grid">
+        <div className="invest-report-stat">
+          <span>전체 투자액</span>
+          <strong>{formatKRW(report.portfolioTotal)}</strong>
+        </div>
         <div className="invest-report-stat">
           <span>시장성 평가액</span>
           <strong>{formatKRW(report.totalCurrent)}</strong>
@@ -1726,9 +1835,48 @@ function InvestmentReport({ report }) {
             {report.totalReturnPct.toFixed(2)}%
           </strong>
         </div>
+        <div className="invest-report-stat">
+          <span>손실 자산</span>
+          <strong className={report.lossAmount > 0 ? 'profit-neg' : ''}>{formatKRW(report.lossCurrent)}</strong>
+          <small>
+            {report.losingCount}개 · {formatPct(report.lossWeight)} · 손실 {formatKRW(report.lossAmount)}
+          </small>
+        </div>
       </div>
 
       <div className="invest-report-grid">
+        <div className="invest-report-card invest-report-card-full">
+          <h4>안전 · 위험 자산 구성</h4>
+          <p className="invest-report-summary">{report.allocationSummary}</p>
+          <div className="invest-allocation-track" aria-label="안전자산 위험자산 대체자산 비중">
+            {report.allocationBuckets
+              .filter((bucket) => bucket.value > 0)
+              .map((bucket) => (
+                <span
+                  key={bucket.id}
+                  style={{
+                    '--alloc': bucket.color,
+                    width: `${Math.max(4, bucket.weight)}%`,
+                  }}
+                  title={`${bucket.label} ${formatPct(bucket.weight)} · ${formatKRW(bucket.value)}`}
+                />
+              ))}
+          </div>
+          <div className="invest-allocation-grid">
+            {report.allocationBuckets.map((bucket) => (
+              <div className={`invest-allocation-item ${bucket.id}`} key={bucket.id}>
+                <div className="invest-allocation-item-head">
+                  <span className="invest-dot" style={{ background: bucket.color }} />
+                  <strong>{bucket.label}</strong>
+                  <b>{formatPct(bucket.weight)}</b>
+                </div>
+                <div className="invest-allocation-value">{formatKRW(bucket.value)}</div>
+                <p>{bucket.count}개 · {bucket.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="invest-report-card invest-report-card-wide">
           <h4>자산 비중</h4>
           <div className="invest-report-pie-wrap">
@@ -1755,12 +1903,7 @@ function InvestmentReport({ report }) {
                           <Cell key={pos.id} fill={pos.color || REPORT_COLORS[index % REPORT_COLORS.length]} />
                         ))}
                       </Pie>
-                      <Tooltip
-                        formatter={(value, _name, item) => [
-                          formatKRW(value),
-                          item?.payload?.name || '평가액',
-                        ]}
-                      />
+                      <Tooltip content={<InvestPieTooltip />} />
                     </PieChart>
                   </ResponsiveContainer>
                   <div className="invest-report-pie-center">
@@ -1775,19 +1918,14 @@ function InvestmentReport({ report }) {
             <div className="invest-report-pie-legend">
               {report.positions.map((pos, index) => (
                 <div
-                  className="invest-report-pie-chip"
+                  className={`invest-report-pie-chip${pos.profit < 0 ? ' loss' : ''}`}
                   key={pos.id}
                   style={{ '--chip': pos.color || REPORT_COLORS[index % REPORT_COLORS.length] }}
+                  title={`${pos.name} · ${pos.symbol || pos.market} · ${formatKRW(pos.current)} · ${formatPct(pos.weight)}`}
                 >
                   <i />
-                  <div className="invest-report-pie-chip-main">
-                    <strong>{pos.name}</strong>
-                    <span>{pos.symbol || pos.market}</span>
-                  </div>
-                  <div className="invest-report-pie-chip-meta">
-                    <strong>{formatPct(pos.weight)}</strong>
-                    <span>{formatKRW(pos.current)}</span>
-                  </div>
+                  <span>{pos.name}</span>
+                  <strong>{formatPct(pos.weight, 0)}</strong>
                 </div>
               ))}
             </div>
@@ -1862,6 +2000,32 @@ function InvestmentReport({ report }) {
   )
 }
 
+function InvestPieTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null
+  const pos = payload[0]?.payload
+  if (!pos) return null
+  return (
+    <div className="invest-pie-tooltip">
+      <strong>{pos.name}</strong>
+      <span>{pos.symbol || pos.market}</span>
+      <dl>
+        <div>
+          <dt>비중</dt>
+          <dd>{formatPct(pos.weight)}</dd>
+        </div>
+        <div>
+          <dt>평가액</dt>
+          <dd>{formatKRW(pos.current)}</dd>
+        </div>
+        <div>
+          <dt>손익</dt>
+          <dd className={profitClass(pos.profit)}>{signedKRW(pos.profit)}</dd>
+        </div>
+      </dl>
+    </div>
+  )
+}
+
 function ReportBar({ color, label, meta, value, weight }) {
   return (
     <div className="invest-report-bar" style={{ '--bar': color }}>
@@ -1910,7 +2074,8 @@ function ProductCard({
   if (p.kind === '예금') {
     kindDetail = `예금 · ${m.elapsed}/${m.months}개월`
   } else if (p.kind === '적금') {
-    kindDetail = `적금 · ${m.round}/${m.totalRounds}회차`
+    kindDetail = `적금 · 월 납입 ${formatKRW(m.monthly)} · ${m.round}/${m.totalRounds}회차`
+    profitText = `납입원금 ${formatKRW(m.cost)} · 이자 ${signedKRW(m.profit)}`
   } else if (p.kind === '비트코인') {
     kindDetail = `${m.quantity.toLocaleString('ko-KR', { maximumFractionDigits: 8 })} BTC · 현재 ${formatKRW(m.currentPrice)}`
     profitText = `${signedKRW(m.profit)} (${m.returnPct >= 0 ? '+' : ''}${m.returnPct.toFixed(2)}%)`

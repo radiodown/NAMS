@@ -1,6 +1,7 @@
 export function normalizeStockSymbol(value) {
   const symbol = String(value || '').trim().toUpperCase().replace(/\s+/g, '')
   if (!symbol) return ''
+  if (symbol === 'KRW-BTC') return 'BTC-KRW'
   if (/^\d{6}$/.test(symbol)) return `${symbol}.KS`
   if (/^\d[0-9A-Z]{5}$/.test(symbol)) return `${symbol}.KS`
   const classMatch = symbol.match(/^([A-Z]{1,6})[./]([A-Z])$/)
@@ -28,6 +29,7 @@ const QUOTE_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7
 const STOCK_QUOTE_CACHE_MS = 1000 * 60
 const FX_QUOTE_CACHE_MS = 1000 * 60 * 60
 const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
+const UPBIT_TICKER_URL = 'https://api.upbit.com/v1/ticker'
 const NAVER_ETF_PAGE_SIZE = 100
 const NAVER_ETF_MAX_PAGES = 15
 const quoteMemoryCache = new Map()
@@ -120,6 +122,11 @@ function naverEtfListUrl(page, pageSize = NAVER_ETF_PAGE_SIZE) {
     return `https://m.stock.naver.com/api/stocks/etf?page=${page}&pageSize=${pageSize}`
   }
   return readerUrl(`http://m.stock.naver.com/api/stocks/etf?page=${page}&pageSize=${pageSize}`)
+}
+
+function upbitTickerUrl(market) {
+  const params = new URLSearchParams({ markets: market })
+  return `${UPBIT_TICKER_URL}?${params.toString()}`
 }
 
 function extractJson(text) {
@@ -285,6 +292,33 @@ async function fetchYahooQuote(symbol, emptyMessage) {
     }
   }
   throw lastError || new Error('시세 조회 실패')
+}
+
+function isBitcoinKrwSymbol(symbol) {
+  return normalizeStockSymbol(symbol) === 'BTC-KRW'
+}
+
+function quoteFromUpbitTickerData(data) {
+  const item = Array.isArray(data) ? data[0] : null
+  const price = Number(item?.trade_price)
+  if (!Number.isFinite(price) || price <= 0) throw new Error('비트코인 현재가를 찾을 수 없습니다.')
+  const previousClose = Number(item?.prev_closing_price) || 0
+  const change = Number(item?.signed_change_price ?? (previousClose ? price - previousClose : 0)) || 0
+  const rate = Number(item?.signed_change_rate)
+  const timestamp = Number(item?.timestamp)
+  return {
+    symbol: 'BTC-KRW',
+    price,
+    previousClose,
+    change,
+    changePercent: Number.isFinite(rate) ? rate * 100 : previousClose > 0 ? (change / previousClose) * 100 : 0,
+    currency: 'KRW',
+    time: timestamp ? new Date(timestamp).toISOString() : new Date().toISOString(),
+  }
+}
+
+async function fetchUpbitBitcoinQuote() {
+  return quoteFromUpbitTickerData(await fetchJson(upbitTickerUrl('KRW-BTC')))
 }
 
 function compactSearchText(value) {
@@ -586,6 +620,17 @@ export async function fetchStockQuote(input) {
   if (!symbol) throw new Error('종목 코드가 없습니다.')
 
   return withCachedQuoteFallback(symbol, async () => {
+    if (isBitcoinKrwSymbol(symbol)) {
+      try {
+        return await fetchUpbitBitcoinQuote()
+      } catch (upbitError) {
+        try {
+          return await fetchYahooQuote(symbol, '종목 코드가 없습니다.')
+        } catch {
+          throw upbitError
+        }
+      }
+    }
     if (koreanStockCode(symbol)) {
       try {
         return await fetchNaverQuote(symbol)
