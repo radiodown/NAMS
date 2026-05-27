@@ -2286,11 +2286,128 @@ td.memo {
   color: var(--muted);
 }
 
+.expense-trend-chart-card {
+  cursor: pointer;
+}
+
+.expense-trend-chart-card:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent, #7c3aed) 24%, transparent);
+  outline-offset: 3px;
+  border-color: var(--accent, #7c3aed);
+}
+
 .chart-head {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 10px;
+}
+
+.expense-trend-mode-pill {
+  flex: 0 0 auto;
+  min-width: 42px;
+  padding: 4px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent, #7c3aed) 26%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #7c3aed) 8%, var(--surface));
+  color: var(--accent, #7c3aed);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.expense-trend-modal {
+  width: min(560px, 100%);
+}
+
+.expense-trend-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.expense-trend-summary strong {
+  font-size: 13px;
+}
+
+.expense-trend-category-grid {
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, 58vh);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.expense-trend-category-option {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.expense-trend-category-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.expense-trend-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--category-color);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, #fff 72%, transparent);
+}
+
+.expense-trend-category-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.expense-trend-category-total {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.expense-trend-category-option:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent, #7c3aed) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent, #7c3aed) 7%, var(--surface));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #7c3aed) 8%, transparent);
+}
+
+.expense-trend-category-option:has(input:focus-visible) {
+  border-color: var(--accent, #7c3aed);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #7c3aed) 14%, transparent);
+}
+
+.expense-trend-category-option.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.expense-trend-category-option.disabled .expense-trend-swatch {
+  filter: grayscale(1);
 }
 
 .toggle {
@@ -4191,12 +4308,6 @@ td.memo {
   color: var(--accent);
   font-size: 10px;
   font-weight: 900;
-}
-
-.invest-folder-tab .invest-dot {
-  width: 7px;
-  height: 7px;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .invest-group-card .invest-card-tools {
@@ -6810,13 +6921,68 @@ td.memo {
   grid-column: 1 / -1;
 }
 
-.tax-toggle-field label {
+.tax-settings-grid .field .tax-check-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
   font-size: 13px;
   color: var(--text);
+  font-weight: 800;
+  line-height: 1.35;
   cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
+}
+
+.tax-check-row input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tax-check-box {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin-top: 0;
+  display: grid;
+  place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.tax-check-box::after {
+  content: '';
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  opacity: 0;
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+.tax-check-row:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.tax-check-row:has(input:checked) .tax-check-box {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.tax-check-row:has(input:checked) .tax-check-box::after {
+  opacity: 1;
+}
+
+.tax-check-row:has(input:focus-visible) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
 .tax-row {

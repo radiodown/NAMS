@@ -165,6 +165,11 @@ const blankForm = (kind = '예금') => ({
 })
 
 function formFromProduct(p) {
+  const currentSavingsRound =
+    p.kind === '적금' && p.round !== '' && p.round != null
+      ? productMetrics(p, todayStr()).round
+      : ''
+
   return {
     ...blankForm(p.kind),
     name: p.name || '',
@@ -175,7 +180,7 @@ function formFromProduct(p) {
     rate: p.rate != null ? String(p.rate) : '',
     months: p.months != null ? String(p.months) : '',
     monthly: p.monthly != null ? String(p.monthly) : '',
-    round: p.round === '' || p.round == null ? '' : String(p.round),
+    round: currentSavingsRound === '' ? '' : String(currentSavingsRound),
     shares: p.shares != null ? String(p.shares) : '',
     buyPrice: p.buyPrice != null ? String(p.buyPrice) : '',
     bitcoinAmount: p.quantity != null ? String(p.quantity) : '',
@@ -800,6 +805,15 @@ export default function InvestmentStage({ investments }) {
   }, [items, pruneEmptyGroups])
 
   useEffect(() => {
+    items.forEach((p) => {
+      if (p.kind !== '적금') return
+      if (p.round === '' || p.round == null) return
+      if (p.roundBaseDate) return
+      updateItem(p.id, { roundBaseDate: today })
+    })
+  }, [items, today, updateItem])
+
+  useEffect(() => {
     if (!activeChartId) return
     if (
       !items.some(
@@ -960,7 +974,7 @@ export default function InvestmentStage({ investments }) {
       const usedPrevious = quote?.stale || exchangeQuote?.stale || (exchangeError && previousFx)
       const failed = !quote || quote?.stale || exchangeError
       const previousStatus =
-        p.kind === '주식'
+        p.kind === '주식' || p.kind === '비트코인'
           ? { state: 'error', text: '갱신 실패' }
           : { state: 'idle', text: '이전값' }
 
@@ -1198,6 +1212,7 @@ export default function InvestmentStage({ investments }) {
         months,
         method: form.method,
         round,
+        roundBaseDate: round === '' ? '' : today,
         taxBenefit,
       }
     } else if (kind === '비트코인') {
@@ -1820,7 +1835,7 @@ export default function InvestmentStage({ investments }) {
                 />
               </div>
               <div className="field">
-                <label>납입 회차</label>
+                <label>납입 회차 (자동 증가)</label>
                 <NumberInput
                   min="0"
                   decimal={false}
@@ -2590,7 +2605,6 @@ function InvestmentGroupCard({
       >
         <div className="invest-card-head">
           <span className="invest-card-name invest-folder-tab">
-            <span className="invest-dot" style={{ background: accent }} />
             <b>{group.items.length}개</b>
           </span>
           <div className="invest-card-tools">
@@ -2830,7 +2844,7 @@ function ProductCard({
       : null
   const clickable = MARKET_ASSET_KINDS.has(p.kind) || INTEREST_DETAIL_KINDS.has(p.kind)
   const clickLabel = MARKET_ASSET_KINDS.has(p.kind) ? '시세 그래프' : '상세 정보'
-  const stockStatus = p.kind === '주식' ? status : null
+  const inlineQuoteStatus = p.kind === '주식' || p.kind === '비트코인' ? status : null
   const missingFx = p.kind === '주식' && m.currency !== 'KRW' && !m.exchangeRate
 
   let valueText = formatKRW(m.current)
@@ -2968,19 +2982,19 @@ function ProductCard({
     >
       <div className="invest-card-head">
         <span
-          className={`invest-kind-chip${stockStatus ? ' has-quote-status' : ''}`}
-          title={stockStatus ? `시세 ${stockStatus.text}` : undefined}
+          className={`invest-kind-chip${inlineQuoteStatus ? ' has-quote-status' : ''}`}
+          title={inlineQuoteStatus ? `시세 ${inlineQuoteStatus.text}` : undefined}
         >
           {p.kind}
-          {stockStatus && (
+          {inlineQuoteStatus && (
             <span
-              className={`quote-status-dot ${stockStatus.state}`}
+              className={`quote-status-dot ${inlineQuoteStatus.state}`}
               aria-hidden="true"
             />
           )}
         </span>
         <div className="invest-card-tools">
-          {status && p.kind !== '주식' && (
+          {status && !inlineQuoteStatus && (
             <span className={`quote-badge ${status.state}`}>{status.text}</span>
           )}
           <button

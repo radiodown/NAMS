@@ -63,6 +63,11 @@ function formatLocalPrice(value, currency) {
   return `${currency} ${value.toLocaleString(undefined, { maximumFractionDigits: 4 })}`
 }
 
+function formatStalePrice(value, currency) {
+  const price = formatLocalPrice(value, currency)
+  return price === '-' ? '시세 대기' : `${price} 기준`
+}
+
 export default function MockInvestmentStage({ mockInvest }) {
   const { portfolio, setStartingCash, buy, sell, reset } = mockInvest
 
@@ -84,14 +89,23 @@ export default function MockInvestmentStage({ mockInvest }) {
   const lockedQueryRef = useRef('')
   const searchRunRef = useRef(0)
 
-  const heldSymbols = useMemo(
+  const heldSymbolsKey = useMemo(
     () =>
       [...new Set(portfolio.positions.map((p) => `${p.symbol}|${p.currency}`))]
-        .map((key) => {
-          const [symbol, currency] = key.split('|')
-          return { symbol, currency }
-        }),
+        .sort()
+        .join('||'),
     [portfolio.positions]
+  )
+
+  const heldSymbols = useMemo(
+    () =>
+      heldSymbolsKey
+        ? heldSymbolsKey.split('||').map((key) => {
+            const [symbol, currency] = key.split('|')
+            return { symbol, currency }
+          })
+        : [],
+    [heldSymbolsKey]
   )
 
   // Live quote refresh for held positions + the selected search result.
@@ -270,7 +284,8 @@ export default function MockInvestmentStage({ mockInvest }) {
     if (!selected?.symbol) return
     const quote = quotes.get(selected.symbol)
     if (quote?.price) {
-      setTradeForm((prev) => ({ ...prev, price: String(quote.price) }))
+      const price = String(quote.price)
+      setTradeForm((prev) => (prev.price === price ? prev : { ...prev, price }))
     }
   }, [quotes, selected?.symbol])
 
@@ -291,12 +306,24 @@ export default function MockInvestmentStage({ mockInvest }) {
     const symbol = normalizeStockSymbol(item.symbol || item.name || '')
     if (!symbol) return
     const name = item.name || symbol
+    const currency = (item.currency || 'KRW').toUpperCase()
+    const currentPrice = Number(item.currentPrice) || 0
     setSelected({
       symbol,
       name,
-      currency: (item.currency || 'KRW').toUpperCase(),
+      currency,
       exchange: item.exchange || '',
     })
+    if (currentPrice > 0) {
+      setQuotes((prev) => {
+        const next = new Map(prev)
+        next.set(symbol, { price: currentPrice, currency })
+        return next
+      })
+      setTradeForm((prev) => ({ ...prev, price: String(currentPrice) }))
+    } else {
+      setTradeForm((prev) => ({ ...prev, price: '' }))
+    }
     setSearch((prev) => ({ ...prev, query: name }))
     lockedQueryRef.current = name
     setSearchOpen(false)
@@ -722,7 +749,7 @@ export default function MockInvestmentStage({ mockInvest }) {
                     </td>
                     <td className="col-right">
                       {position.stale
-                        ? '시세 대기'
+                        ? formatStalePrice(position.currentPriceLocal, position.currency)
                         : formatLocalPrice(position.currentPriceLocal, position.currency)}
                     </td>
                     <td className="col-right">{formatKRW(position.marketValueKRW || 0)}</td>

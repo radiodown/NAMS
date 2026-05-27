@@ -64,7 +64,9 @@ export function savingsMetrics(p, today) {
   const inferred = Math.max(0, monthsBetween(p.date, today) + 1)
   const rawManual = p.round === '' || p.round == null ? null : Number(p.round)
   const manual = Number.isFinite(rawManual) ? rawManual : null
-  const roundNow = Math.min(Math.max(Math.floor(manual != null ? manual : inferred), 0), N)
+  const manualElapsed =
+    manual != null ? Math.max(0, monthsBetween(p.roundBaseDate || today, today)) : 0
+  const roundNow = Math.min(Math.max(Math.floor(manual != null ? manual + manualElapsed : inferred), 0), N)
 
   const valueAtRound = (cRaw) => {
     const c = Math.min(Math.max(Math.floor(cRaw), 0), N)

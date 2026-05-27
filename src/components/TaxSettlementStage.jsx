@@ -203,23 +203,25 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
             />
           </div>
           <div className="field tax-toggle-field">
-            <label>
+            <label className="tax-check-row">
               <input
                 type="checkbox"
                 checked={settings.isHomeless}
                 onChange={(e) => update({ isHomeless: e.target.checked })}
               />
-              무주택 세대 요건 충족 (월세·청약 공제 대상)
+              <span className="tax-check-box" aria-hidden="true" />
+              <span>무주택 세대 요건 충족 (월세·청약 공제 대상)</span>
             </label>
           </div>
           <div className="field tax-toggle-field">
-            <label>
+            <label className="tax-check-row">
               <input
                 type="checkbox"
                 checked={Boolean(settings.marriageCredit)}
                 onChange={(e) => update({ marriageCredit: e.target.checked })}
               />
-              혼인세액공제 대상 (2024~2026년 혼인신고 · 생애 1회)
+              <span className="tax-check-box" aria-hidden="true" />
+              <span>혼인세액공제 대상 (2024~2026년 혼인신고 · 생애 1회)</span>
             </label>
           </div>
         </div>

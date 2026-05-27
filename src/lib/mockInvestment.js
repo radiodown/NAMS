@@ -217,23 +217,37 @@ export function applySell(portfolio, params) {
 
 // quotes: Map symbol -> { price, currency }
 // fxRates: Map currency -> rate to KRW (rate * priceLocal = KRW)
+function fallbackPositionValue(position, quotePrice = 0) {
+  const localCost = position.units * position.avgPriceLocal
+  const fxRate =
+    position.currency === 'KRW'
+      ? 1
+      : localCost > 0
+        ? position.costBasisKRW / localCost
+        : 1
+  return {
+    ...position,
+    currentPriceLocal: quotePrice || position.avgPriceLocal,
+    fxRate,
+    marketValueKRW: position.costBasisKRW,
+    unrealizedPnLKRW: 0,
+    unrealizedPnLPct: 0,
+    stale: true,
+  }
+}
+
 export function valuePosition(position, quotes, fxRates) {
   const quote = quotes?.get?.(position.symbol)
   if (!quote || !Number.isFinite(quote.price) || quote.price <= 0) {
-    return {
-      ...position,
-      currentPriceLocal: 0,
-      fxRate: 1,
-      marketValueKRW: 0,
-      unrealizedPnLKRW: -position.costBasisKRW,
-      unrealizedPnLPct: 0,
-      stale: true,
-    }
+    return fallbackPositionValue(position)
   }
   const fx =
     position.currency === 'KRW'
       ? 1
-      : nonNeg(fxRates?.get?.(position.currency)) || 1
+      : nonNeg(fxRates?.get?.(position.currency))
+  if (position.currency !== 'KRW' && fx <= 0) {
+    return fallbackPositionValue(position, quote.price)
+  }
   const marketValueKRW = position.units * quote.price * fx
   const unrealizedPnLKRW = marketValueKRW - position.costBasisKRW
   const unrealizedPnLPct =

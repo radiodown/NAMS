@@ -191,7 +191,12 @@ export function normalizeInvestment(product) {
   }
   return kind === '예금'
     ? { ...interest, principal: num(product?.principal) }
-    : { ...interest, monthly: num(product?.monthly), round: optNum(product?.round) }
+    : {
+        ...interest,
+        monthly: num(product?.monthly),
+        round: optNum(product?.round),
+        roundBaseDate: str(product?.roundBaseDate),
+      }
 }
 
 // --- fixed expense template -------------------------------------------------
@@ -301,6 +306,7 @@ export function defaultGraphStageSettings() {
     annualReturnOverride: null,
     wageGrowth: 0,
     monthlyIncomeInvestmentOverride: 0,
+    expenseTrendCategories: [],
   }
 }
 
@@ -400,6 +406,7 @@ export function normalizeGraphStageSettings(value) {
       0,
       100
     ),
+    expenseTrendCategories: uniqueList(source.expenseTrendCategories).slice(0, 5),
   }
 }
 

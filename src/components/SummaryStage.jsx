@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ResponsiveContainer,
   LineChart,
@@ -33,6 +33,7 @@ const MIN_HORIZON_YEARS = 1
 const MAX_HORIZON_YEARS = 80
 const MIN_WAGE_GROWTH = -10
 const MAX_WAGE_GROWTH = 20
+const MAX_EXPENSE_TREND_CATEGORIES = 5
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 const roundToStep = (value, step = 0.5) => Math.round(value / step) * step
 
@@ -81,6 +82,69 @@ function averageMonthlyIncome(entries) {
 }
 
 const tooltipMoney = (value) => formatKRW(value)
+
+function normalizeCategoryName(value) {
+  return String(value ?? '').trim()
+}
+
+function expenseCategoryOptions(entries, selectedCategories = []) {
+  const totals = new Map()
+  entries.forEach((entry) => {
+    if (entry.type !== '지출') return
+    const category = normalizeCategoryName(entry.category) || '미분류'
+    const amount = Number(entry.amount) || 0
+    if (amount <= 0) return
+    totals.set(category, (totals.get(category) || 0) + amount)
+  })
+
+  selectedCategories.forEach((category) => {
+    const name = normalizeCategoryName(category)
+    if (name && !totals.has(name)) totals.set(name, 0)
+  })
+
+  return [...totals.entries()]
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))
+}
+
+function buildExpenseCategoryTrend(entries, months, selectedCategories = [], limit = 5) {
+  const totals = new Map()
+  const byMonth = new Map()
+
+  entries.forEach((entry) => {
+    if (entry.type !== '지출') return
+    const month = monthOf(entry.date)
+    if (!month) return
+    const category = normalizeCategoryName(entry.category) || '미분류'
+    const amount = Number(entry.amount) || 0
+    if (amount <= 0) return
+    totals.set(category, (totals.get(category) || 0) + amount)
+    if (!byMonth.has(month)) byMonth.set(month, {})
+    const bucket = byMonth.get(month)
+    bucket[category] = (bucket[category] || 0) + amount
+  })
+
+  const selected = [...new Set(selectedCategories.map(normalizeCategoryName).filter(Boolean))]
+    .slice(0, limit)
+  const categories =
+    selected.length > 0
+      ? selected
+      : [...totals.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, limit)
+          .map(([name]) => name)
+
+  const data = months.map(({ month }) => {
+    const source = byMonth.get(month) || {}
+    const row = { month }
+    categories.forEach((category) => {
+      row[category] = source[category] || 0
+    })
+    return row
+  })
+
+  return { categories, data }
+}
 
 function ProjectionEndpointLabel({ x, y, value, payload, index }) {
   const pointX = Number(x)
@@ -137,6 +201,7 @@ function ProjectionEndpointLabel({ x, y, value, payload, index }) {
 
 export default function SummaryStage({ entries, investments }) {
   const today = todayStr()
+  const [expenseTrendSettingsOpen, setExpenseTrendSettingsOpen] = useState(false)
   const [rawGraphSettings, setGraphSettings] = useStoredSlice(
     STORE_PATHS.settings.graphStage,
     defaultGraphStageSettings
@@ -153,6 +218,7 @@ export default function SummaryStage({ entries, investments }) {
     annualReturnOverride,
     wageGrowth,
     monthlyIncomeInvestmentOverride,
+    expenseTrendCategories,
   } = graphSettings
 
   function updateGraphSettings(patch) {
@@ -183,6 +249,44 @@ export default function SummaryStage({ entries, investments }) {
     [entries, activeYear]
   )
   const months = useMemo(() => aggregateMonths(filtered), [filtered])
+  const selectedExpenseTrendCategories = useMemo(
+    () =>
+      [...new Set(expenseTrendCategories.map(normalizeCategoryName).filter(Boolean))]
+        .slice(0, MAX_EXPENSE_TREND_CATEGORIES),
+    [expenseTrendCategories]
+  )
+  const expenseTrendCategoryOptions = useMemo(
+    () => expenseCategoryOptions(entries, selectedExpenseTrendCategories),
+    [entries, selectedExpenseTrendCategories]
+  )
+  const selectedExpenseTrendCategorySet = useMemo(
+    () => new Set(selectedExpenseTrendCategories),
+    [selectedExpenseTrendCategories]
+  )
+  const expenseCategoryTrend = useMemo(
+    () =>
+      buildExpenseCategoryTrend(
+        filtered,
+        months,
+        selectedExpenseTrendCategories,
+        MAX_EXPENSE_TREND_CATEGORIES
+      ),
+    [filtered, months, selectedExpenseTrendCategories]
+  )
+
+  function toggleExpenseTrendCategory(category) {
+    const name = normalizeCategoryName(category)
+    if (!name) return
+    const exists = selectedExpenseTrendCategorySet.has(name)
+    const next = exists
+      ? selectedExpenseTrendCategories.filter((item) => item !== name)
+      : [...selectedExpenseTrendCategories, name].slice(0, MAX_EXPENSE_TREND_CATEGORIES)
+    updateGraphSettings({ expenseTrendCategories: next })
+  }
+
+  function clearExpenseTrendCategories() {
+    updateGraphSettings({ expenseTrendCategories: [] })
+  }
 
   const invest = useMemo(() => summarize(investments, today), [investments, today])
 
@@ -462,23 +566,61 @@ export default function SummaryStage({ entries, investments }) {
           )}
 
           <div className="chart-grid">
-            <div className="chart-card">
-              <h3>월별 추이</h3>
-              <p className="sub">월별 수입 · 지출 흐름</p>
+            <div
+              className="chart-card expense-trend-chart-card"
+              role="button"
+              tabIndex={0}
+              aria-label="카테고리별 지출 추이 설정"
+              onClick={() => setExpenseTrendSettingsOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setExpenseTrendSettingsOpen(true)
+                }
+              }}
+            >
+              <div className="chart-head">
+                <div>
+                  <h3>카테고리별 지출 추이</h3>
+                  <p className="sub">
+                    {selectedExpenseTrendCategories.length > 0
+                      ? '선택 카테고리 월별 변화'
+                      : '상위 지출 카테고리 월별 변화'}
+                  </p>
+                </div>
+                <span className="expense-trend-mode-pill">
+                  {selectedExpenseTrendCategories.length > 0
+                    ? `${selectedExpenseTrendCategories.length}/${MAX_EXPENSE_TREND_CATEGORIES}`
+                    : '자동'}
+                </span>
+              </div>
               {months.length === 0 ? (
                 <div className="empty" style={{ padding: '60px 10px' }}>
                   날짜가 있는 거래가 없습니다.
                 </div>
+              ) : expenseCategoryTrend.categories.length === 0 ? (
+                <div className="empty" style={{ padding: '60px 10px' }}>
+                  지출 카테고리 데이터가 없습니다.
+                </div>
               ) : (
                 <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={months} margin={{ top: 5, right: 14, bottom: 5, left: 0 }}>
+                  <LineChart data={expenseCategoryTrend.data} margin={{ top: 5, right: 14, bottom: 5, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" />
                     <XAxis dataKey="month" fontSize={12} tickMargin={8} />
                     <YAxis tickFormatter={compactKRW} fontSize={12} width={54} />
                     <Tooltip formatter={tooltipMoney} />
                     <Legend />
-                    <Line type="monotone" dataKey="수입" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="지출" stroke="#dc2626" strokeWidth={2} dot={{ r: 3 }} />
+                    {expenseCategoryTrend.categories.map((category, index) => (
+                      <Line
+                        key={category}
+                        type="monotone"
+                        dataKey={category}
+                        stroke={PIE_COLORS[index % PIE_COLORS.length]}
+                        strokeWidth={2.2}
+                        dot={{ r: 2.8 }}
+                        activeDot={{ r: 5 }}
+                      />
+                    ))}
                   </LineChart>
                 </ResponsiveContainer>
               )}
@@ -595,6 +737,101 @@ export default function SummaryStage({ entries, investments }) {
               )}
             </div>
           </div>
+
+          {expenseTrendSettingsOpen && (
+            <div
+              className="fixed-modal-backdrop"
+              onClick={() => setExpenseTrendSettingsOpen(false)}
+            >
+              <div
+                className="fixed-modal expense-trend-modal"
+                role="dialog"
+                aria-modal="true"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="fixed-modal-head">
+                  <h3>지출 추이 카테고리</h3>
+                  <button
+                    className="fixed-modal-close"
+                    onClick={() => setExpenseTrendSettingsOpen(false)}
+                    aria-label="닫기"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="expense-trend-summary">
+                  <strong>
+                    {selectedExpenseTrendCategories.length > 0
+                      ? `${selectedExpenseTrendCategories.length}/${MAX_EXPENSE_TREND_CATEGORIES} 선택`
+                      : `자동 상위 ${MAX_EXPENSE_TREND_CATEGORIES}개`}
+                  </strong>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={clearExpenseTrendCategories}
+                    disabled={selectedExpenseTrendCategories.length === 0}
+                  >
+                    자동
+                  </button>
+                </div>
+
+                {expenseTrendCategoryOptions.length === 0 ? (
+                  <div className="empty" style={{ padding: '28px 10px' }}>
+                    지출 카테고리 데이터가 없습니다.
+                  </div>
+                ) : (
+                  <div className="expense-trend-category-grid">
+                    {expenseTrendCategoryOptions.map((option, index) => {
+                      const selected = selectedExpenseTrendCategorySet.has(option.name)
+                      const disabled =
+                        !selected &&
+                        selectedExpenseTrendCategories.length >= MAX_EXPENSE_TREND_CATEGORIES
+                      const colorIndex = selected
+                        ? selectedExpenseTrendCategories.indexOf(option.name)
+                        : index
+
+                      return (
+                        <label
+                          className={`expense-trend-category-option${disabled ? ' disabled' : ''}`}
+                          key={option.name}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selected}
+                            disabled={disabled}
+                            onChange={() => toggleExpenseTrendCategory(option.name)}
+                          />
+                          <span
+                            className="expense-trend-swatch"
+                            style={{
+                              '--category-color':
+                                PIE_COLORS[colorIndex % PIE_COLORS.length],
+                            }}
+                            aria-hidden="true"
+                          />
+                          <span className="expense-trend-category-name">{option.name}</span>
+                          <span className="expense-trend-category-total">
+                            {formatKRW(option.value)}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <div className="fixed-modal-actions">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-accent"
+                    onClick={() => setExpenseTrendSettingsOpen(false)}
+                  >
+                    완료
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

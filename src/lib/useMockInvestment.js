@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import {
   applyBuy,
   applySell,
@@ -9,11 +9,12 @@ import { useStoredSlice } from './store'
 import { STORE_PATHS } from './storePaths'
 
 export function useMockInvestment() {
+  const fallbackPortfolio = useMemo(() => defaultMockPortfolio(), [])
   const [raw, setRaw] = useStoredSlice(
     STORE_PATHS.mockInvest.portfolio,
-    defaultMockPortfolio()
+    fallbackPortfolio
   )
-  const portfolio = normalizeMockPortfolio(raw)
+  const portfolio = useMemo(() => normalizeMockPortfolio(raw), [raw])
 
   const setStartingCash = useCallback(
     (amount) => {
