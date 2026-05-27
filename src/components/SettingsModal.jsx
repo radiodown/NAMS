@@ -1,7 +1,14 @@
 import DataControls from './DataControls'
 import DriveBackup from './DriveBackup'
 
-export default function SettingsModal({ onClose, onExport, onImport, onClear, onFillSample }) {
+export default function SettingsModal({
+  onClose,
+  onExport,
+  onImport,
+  onClear,
+  onFillSample,
+  importAccept,
+}) {
   return (
     <div className="fixed-modal-backdrop" onClick={onClose}>
       <div
@@ -29,6 +36,7 @@ export default function SettingsModal({ onClose, onExport, onImport, onClear, on
               variant="settings"
               exportLabel="저장"
               importLabel="불러오기"
+              accept={importAccept}
             />
           </section>
 

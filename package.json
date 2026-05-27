@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "stock:presets": "node tools/stock-preset-scraper/scrape-stock-presets.mjs",
+    "banksalad:migrate": "node tools/banksalad/migrate-banksalad-xlsx.mjs",
     "card:scrape": "node tools/card-scraper/scrape-card-gorilla.mjs",
     "card:normalize": "node tools/card-scraper/normalize-card-products.mjs",
     "card:rules": "node tools/card-scraper/extract-benefit-rules.mjs",
@@ -15,6 +16,7 @@
     "card:build-db": "npm run card:scrape && npm run card:normalize && npm run card:rules && npm run card:generate"
   },
   "dependencies": {
+    "@e965/xlsx": "^0.20.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.13.3"

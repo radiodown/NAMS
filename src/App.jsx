@@ -6,7 +6,7 @@ import { useInvestments } from './lib/useInvestments'
 import { useMockInvestment } from './lib/useMockInvestment'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
-import { todayStr } from './lib/format'
+import { formatKRW, todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
 import { MOCK_INVEST_COLOR } from './lib/mockInvestment'
 import {
@@ -15,6 +15,7 @@ import {
   fixedIncomeEntriesForMonth,
   fixedIncomeEntriesFromRecords,
 } from './lib/fixedExpenseEntries'
+import { reconcileFixedExpenseEntries } from './lib/fixedExpenseSettlement'
 import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
 import MockInvestmentStage from './components/MockInvestmentStage'
@@ -23,7 +24,11 @@ import IncomeManagementStage from './components/IncomeManagementStage'
 import SummaryStage from './components/SummaryStage'
 import TaxSettlementStage from './components/TaxSettlementStage'
 import SettingsModal from './components/SettingsModal'
-import { clearStoredData as clearAppStoredData, useStoredSlice } from './lib/store'
+import {
+  clearStoredData as clearAppStoredData,
+  exportDocument,
+  useStoredSlice,
+} from './lib/store'
 import {
   STAGE_TABS as TABS,
   normalizeStageConfig,
@@ -31,6 +36,7 @@ import {
   defaultStageConfig,
 } from './lib/schema'
 import {
+  BACKUP_ACCEPT,
   BACKUP_MIME,
   backupFileName,
   countBackupItems,
@@ -57,11 +63,23 @@ const TAB_COLOR = {
   연말정산: TAX_COLOR,
 }
 
+const BANKSALAD_XLSX_ACCEPT =
+  '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+const LOCAL_IMPORT_ACCEPT = `${BACKUP_ACCEPT},${BANKSALAD_XLSX_ACCEPT}`
+
 function shiftMonth(month, offset) {
   const [year, monthNum] = month.split('-').map(Number)
   if (!year || !monthNum) return month
   const date = new Date(year, monthNum - 1 + offset, 1)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function isBanksaladSpreadsheet(file) {
+  const name = String(file?.name || '').toLowerCase()
+  return (
+    name.endsWith('.xlsx') ||
+    file?.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  )
 }
 
 export default function App() {
@@ -105,11 +123,17 @@ export default function App() {
     },
     [fixedIncome.items, fixedIncome.records, previousMonth]
   )
-  const currentFixedEntries = useMemo(
+  const currentFixedExpenseRows = useMemo(
     () => fixedExpenseEntriesForMonth(fixed.items, currentMonth, paymentMethods.items),
     [fixed.items, currentMonth, paymentMethods.items]
   )
-  const previousFixedEntries = useMemo(
+  const currentFixedExpenseSettlement = useMemo(
+    () => reconcileFixedExpenseEntries(currentFixedExpenseRows, transactionEntries),
+    [currentFixedExpenseRows, transactionEntries]
+  )
+  const currentFixedEntries = currentFixedExpenseSettlement.unsettledEntries
+  const currentFixedExpenseStatusById = currentFixedExpenseSettlement.statusByFixedId
+  const previousFixedExpenseRows = useMemo(
     () => {
       const records = fixed.records.filter((record) => record.month === previousMonth)
       return records.length > 0
@@ -118,18 +142,25 @@ export default function App() {
     },
     [fixed.items, fixed.records, previousMonth, paymentMethods.items]
   )
+  const previousFixedEntries = useMemo(
+    () => reconcileFixedExpenseEntries(previousFixedExpenseRows, transactionEntries).unsettledEntries,
+    [previousFixedExpenseRows, transactionEntries]
+  )
   const fixedRecordEntries = useMemo(
-    () =>
-      [
-        ...fixedIncomeEntriesFromRecords(
-          fixedIncome.records.filter((record) => record.month < currentMonth)
-        ),
-        ...fixedExpenseEntriesFromRecords(
-          fixed.records.filter((record) => record.month < currentMonth),
-          paymentMethods.items
-        ),
-      ],
-    [currentMonth, fixed.records, fixedIncome.records, paymentMethods.items]
+    () => {
+      const incomeRecords = fixedIncomeEntriesFromRecords(
+        fixedIncome.records.filter((record) => record.month < currentMonth)
+      )
+      const expenseRecords = fixedExpenseEntriesFromRecords(
+        fixed.records.filter((record) => record.month < currentMonth),
+        paymentMethods.items
+      )
+      return [
+        ...incomeRecords,
+        ...reconcileFixedExpenseEntries(expenseRecords, transactionEntries).unsettledEntries,
+      ]
+    },
+    [currentMonth, fixed.records, fixedIncome.records, paymentMethods.items, transactionEntries]
   )
   const entriesWithCurrentFixed = useMemo(
     () => [
@@ -192,6 +223,39 @@ export default function App() {
     URL.revokeObjectURL(url)
   }
 
+  async function importBanksaladXlsx(file) {
+    let migration
+    try {
+      const { migrateBanksaladWorkbook } = await import('./lib/banksaladMigration')
+      migration = migrateBanksaladWorkbook(await file.arrayBuffer(), exportDocument())
+    } catch (error) {
+      alert(error?.message || '뱅크샐러드 xlsx 파일을 읽지 못했습니다.')
+      return
+    }
+
+    const { summary } = migration
+    const skippedText = summary.skippedCount
+      ? `\n이체 등 NAMS 거래로 넣지 않는 내역 ${summary.skippedCount}건은 제외됩니다.`
+      : ''
+    const assetText = summary.assetCount
+      ? `, 자산 ${summary.assetCount}개(${formatKRW(summary.assetValueTotal)})`
+      : ''
+    const cardMatchText = summary.cardProductMatchCount
+      ? `, 카드상품 매칭 ${summary.cardProductMatchCount}개`
+      : ''
+    if (
+      !window.confirm(
+        `뱅크샐러드 xlsx에서 수입 ${summary.incomeCount}건, 지출 ${summary.expenseCount}건, 결제수단 ${summary.paymentMethodCount}개${cardMatchText}${assetText}를 가져옵니다.${skippedText}\n현재 수입·지출·고정수입·고정지출은 이 내역으로 교체하고, 뱅크샐러드 자동 자산은 최신 값으로 갱신합니다.\n계속할까요?`
+      )
+    ) {
+      return
+    }
+
+    importBackupDocument(migration.document)
+    setSettingsOpen(false)
+    setTab('그래프')
+  }
+
   function importJSON(file) {
     const reader = new FileReader()
     reader.onload = () => {
@@ -215,6 +279,14 @@ export default function App() {
     }
     reader.onerror = () => alert('파일을 읽지 못했습니다.')
     reader.readAsText(file, 'utf-8')
+  }
+
+  function importLocalFile(file) {
+    if (isBanksaladSpreadsheet(file)) {
+      importBanksaladXlsx(file)
+      return
+    }
+    importJSON(file)
   }
 
   const counts = useMemo(() => {
@@ -309,17 +381,34 @@ export default function App() {
           : item
       )
     )
+
+    fixed.replaceRecords(
+      fixed.records.map((record) =>
+        record.paymentMethodId === id || record.paymentMethod === from
+          ? { ...record, paymentMethod: to }
+          : record
+      )
+    )
   }
 
-  function replacePaymentMethodEverywhere(fromId, toId) {
+  function replacePaymentMethodEverywhere(fromId, toId, fromName = '') {
     const fromMethod = paymentMethods.items.find((method) => method.id === fromId)
     const toMethod = paymentMethods.items.find((method) => method.id === toId)
-    if (!fromMethod || !toMethod || fromMethod.id === toMethod.id) return false
+    if (!toMethod || (fromMethod && fromMethod.id === toMethod.id)) return false
+    const sourceName = String(fromName || fromMethod?.name || '').trim()
+    const sourceId = String(fromId || '')
+    const matchesSource = (item) => {
+      const itemId = String(item?.paymentMethodId || '')
+      const itemName = String(item?.paymentMethod || '').trim()
+      if (sourceId) {
+        return itemId === sourceId || Boolean(sourceName && itemName === sourceName)
+      }
+      return !itemId && (!sourceName || itemName === sourceName || !itemName)
+    }
 
     ledger.replaceAll(
       entries.map((entry) =>
-        entry.type === '지출' &&
-        (entry.paymentMethodId === fromMethod.id || entry.paymentMethod === fromMethod.name)
+        entry.type === '지출' && matchesSource(entry)
           ? { ...entry, paymentMethodId: toMethod.id, paymentMethod: toMethod.name }
           : entry
       )
@@ -327,9 +416,17 @@ export default function App() {
 
     fixed.replaceAll(
       fixed.items.map((item) =>
-        item.paymentMethodId === fromMethod.id || item.paymentMethod === fromMethod.name
+        matchesSource(item)
           ? { ...item, paymentMethodId: toMethod.id, paymentMethod: toMethod.name }
           : item
+      )
+    )
+
+    fixed.replaceRecords(
+      fixed.records.map((record) =>
+        matchesSource(record)
+          ? { ...record, paymentMethodId: toMethod.id, paymentMethod: toMethod.name }
+          : record
       )
     )
 
@@ -469,9 +566,10 @@ export default function App() {
         <SettingsModal
           onClose={() => setSettingsOpen(false)}
           onExport={exportJSON}
-          onImport={importJSON}
+          onImport={importLocalFile}
           onClear={clearStoredData}
           onFillSample={fillSampleData}
+          importAccept={LOCAL_IMPORT_ACCEPT}
         />
       )}
 
@@ -579,6 +677,7 @@ export default function App() {
             fixedRecords={fixed.records}
             paymentMethods={paymentMethods}
             updatePaymentMethod={updatePaymentMethodEverywhere}
+            replacePaymentMethod={replacePaymentMethodEverywhere}
           />
         ) : (
           <LedgerStage
@@ -600,6 +699,7 @@ export default function App() {
             }
             fixedExpenseEntries={currentFixedEntries}
             previousFixedExpenseEntries={previousFixedEntries}
+            fixedExpenseStatusById={currentFixedExpenseStatusById}
             fixedIncomeEntries={currentFixedIncomeEntries}
             previousFixedIncomeEntries={previousFixedIncomeEntries}
             categories={categoryStore.categories[tab] || STAGE_META[tab].categories}

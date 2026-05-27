@@ -1,7 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
 import CalendarInput from './CalendarInput'
 import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from '../lib/fixedExpenseEntries'
+import { reconcileFixedExpenseEntries } from '../lib/fixedExpenseSettlement'
+import PaymentMethodManager from './PaymentMethodManager'
+import Picker from './Picker'
 
 const EXPENSE_COLOR = '#dc2626'
 
@@ -11,6 +14,10 @@ function pct(value, max) {
 
 function methodName(methods, id, fallback) {
   return methods.find((method) => method.id === id)?.name || fallback || '미지정'
+}
+
+function methodProductLabel(method) {
+  return [method.cardProductIssuer, method.cardProductName].filter(Boolean).join(' · ')
 }
 
 function sumBy(rows, keyFn) {
@@ -31,11 +38,15 @@ export default function ExpenseManagementStage({
   fixedItems = [],
   fixedRecords = [],
   paymentMethods,
+  updatePaymentMethod,
+  replacePaymentMethod,
 }) {
   const [month, setMonth] = useState(() => todayStr().slice(0, 7))
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
   const [historySearch, setHistorySearch] = useState('')
+  const [selectedMethodKey, setSelectedMethodKey] = useState('')
+  const [replaceTargetId, setReplaceTargetId] = useState('')
   const methods = paymentMethods.items
   const periodLabel = periodMode === 'year' ? `${year}년` : month
   const limitMultiplier = periodMode === 'year' ? 12 : 1
@@ -46,7 +57,7 @@ export default function ExpenseManagementStage({
       const months = (periodMode === 'year' ? monthsOfYear(year) : [month]).filter(
         (targetMonth) => targetMonth <= currentMonth
       )
-      return months.flatMap((targetMonth) => {
+      const rows = months.flatMap((targetMonth) => {
         const records = fixedRecords.filter((record) => record.month === targetMonth)
         if (records.length > 0) return fixedExpenseEntriesFromRecords(records, methods)
         if (targetMonth === currentMonth) {
@@ -54,8 +65,9 @@ export default function ExpenseManagementStage({
         }
         return []
       })
+      return reconcileFixedExpenseEntries(rows, entries).unsettledEntries
     },
-    [currentMonth, fixedItems, fixedRecords, methods, month, periodMode, year]
+    [currentMonth, entries, fixedItems, fixedRecords, methods, month, periodMode, year]
   )
   const rows = useMemo(
     () => [
@@ -106,40 +118,80 @@ export default function ExpenseManagementStage({
 
   const methodCards = useMemo(() => {
     const spentById = new Map()
+    const usageByKey = new Map()
+    const ensureUsage = (key, seed) => {
+      if (!usageByKey.has(key)) {
+        usageByKey.set(key, {
+          key,
+          amount: 0,
+          count: 0,
+          latestDate: '',
+          ...seed,
+        })
+      }
+      return usageByKey.get(key)
+    }
     rows.forEach((row) => {
       const id = row.paymentMethodId || ''
       spentById.set(id, (spentById.get(id) || 0) + (Number(row.amount) || 0))
+      const configuredMethod = methods.find((method) => method.id === id)
+      const key = configuredMethod
+        ? `method:${configuredMethod.id}`
+        : id
+          ? `orphan:${id}`
+          : 'unknown'
+      const usage = ensureUsage(key, {
+        type: configuredMethod ? 'configured' : id ? 'orphan' : 'unknown',
+        rawPaymentMethodId: id,
+        rawPaymentMethodName: row.paymentMethod || '',
+      })
+      usage.amount += Number(row.amount) || 0
+      usage.count += 1
+      if ((row.date || '') > usage.latestDate) usage.latestDate = row.date || ''
     })
     const configuredIds = new Set(methods.map((method) => method.id))
     const configured = methods.map((method) => ({
       ...method,
+      key: `method:${method.id}`,
+      type: 'configured',
+      rawPaymentMethodId: method.id,
+      rawPaymentMethodName: method.name,
+      count: usageByKey.get(`method:${method.id}`)?.count || 0,
+      latestDate: usageByKey.get(`method:${method.id}`)?.latestDate || '',
       amount: spentById.get(method.id) || 0,
       limitAmount: method.monthlyLimit ? Number(method.monthlyLimit) * limitMultiplier : '',
       targetAmount: method.monthlyTarget ? Number(method.monthlyTarget) * limitMultiplier : '',
     }))
-    const unknown = rows
-      .filter((row) => !row.paymentMethodId)
-      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
-    const orphan = sumBy(
-      rows.filter((row) => row.paymentMethodId && !configuredIds.has(row.paymentMethodId)),
-      (row) => row.paymentMethod || '삭제된 결제수단'
-    ).map((row) => ({
-      id: `orphan-${row.name}`,
-      name: row.name,
+    const orphan = [...usageByKey.values()].filter(
+      (usage) => usage.type === 'orphan' && !configuredIds.has(usage.rawPaymentMethodId)
+    ).map((usage) => ({
+      key: usage.key,
+      id: usage.rawPaymentMethodId,
+      type: 'orphan',
+      rawPaymentMethodId: usage.rawPaymentMethodId,
+      rawPaymentMethodName: usage.rawPaymentMethodName,
+      name: usage.rawPaymentMethodName || '삭제된 결제수단',
       kind: '삭제됨',
       annualFee: '',
       monthlyLimit: '',
       monthlyTarget: '',
       limitAmount: '',
       targetAmount: '',
-      amount: row.amount,
+      amount: usage.amount,
+      count: usage.count,
+      latestDate: usage.latestDate,
     }))
-    return unknown > 0
+    const unknown = usageByKey.get('unknown')
+    return unknown?.amount > 0
       ? [
           ...configured,
           ...orphan,
           {
+            key: 'unknown',
             id: '',
+            type: 'unknown',
+            rawPaymentMethodId: '',
+            rawPaymentMethodName: '',
             name: '미지정',
             kind: '기타',
             annualFee: '',
@@ -147,16 +199,86 @@ export default function ExpenseManagementStage({
             monthlyTarget: '',
             limitAmount: '',
             targetAmount: '',
-            amount: unknown,
+            amount: unknown.amount,
+            count: unknown.count,
+            latestDate: unknown.latestDate,
           },
         ]
       : [...configured, ...orphan]
   }, [limitMultiplier, methods, rows])
 
+  const selectedMethod = useMemo(
+    () => methodCards.find((method) => method.key === selectedMethodKey) || null,
+    [methodCards, selectedMethodKey]
+  )
+  const selectedConfiguredMethod = selectedMethod?.type === 'configured'
+    ? methods.find((method) => method.id === selectedMethod.rawPaymentMethodId)
+    : null
+  const replaceOptions = useMemo(
+    () =>
+      methods
+        .filter((method) => method.id !== selectedMethod?.rawPaymentMethodId)
+        .map((method) => ({ value: method.id, label: method.name })),
+    [methods, selectedMethod]
+  )
+
   const overLimit = methodCards.filter((m) => m.limitAmount && m.amount > m.limitAmount).length
   const targetMet = methodCards.filter((m) => m.targetAmount && m.amount >= m.targetAmount).length
   const topCategory = byCategory[0]
   const topMethod = byMethod[0]
+
+  useEffect(() => {
+    if (!selectedMethodKey) return
+    if (!methodCards.some((method) => method.key === selectedMethodKey)) {
+      setSelectedMethodKey('')
+      setReplaceTargetId('')
+    }
+  }, [methodCards, selectedMethodKey])
+
+  function toggleMethodCard(method, event) {
+    if (
+      event?.target?.closest?.(
+        'button,input,textarea,select,a,.picker,.card-product-search,.payment-manager'
+      )
+    ) {
+      return
+    }
+    setSelectedMethodKey((current) => (current === method.key ? '' : method.key))
+    setReplaceTargetId('')
+  }
+
+  function handleMethodCardKeyDown(method, event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    if (
+      event.target?.closest?.(
+        'button,input,textarea,select,a,.picker,.card-product-search,.payment-manager'
+      )
+    ) {
+      return
+    }
+    event.preventDefault()
+    toggleMethodCard(method, event)
+  }
+
+  function applyPaymentMethodReplace() {
+    if (!selectedMethod || !replaceTargetId || !replacePaymentMethod) return
+    const target = methods.find((method) => method.id === replaceTargetId)
+    if (!target) return
+    const ok = window.confirm(
+      `'${selectedMethod.name}' 결제수단으로 기록된 지출과 고정지출을 '${target.name}'(으)로 모두 옮길까요?`
+    )
+    if (!ok) return
+    if (
+      replacePaymentMethod(
+        selectedMethod.rawPaymentMethodId,
+        target.id,
+        selectedMethod.rawPaymentMethodName || selectedMethod.name
+      )
+    ) {
+      setSelectedMethodKey(`method:${target.id}`)
+      setReplaceTargetId('')
+    }
+  }
 
   return (
     <div className="stage expense-management" style={{ '--accent': EXPENSE_COLOR }}>
@@ -221,8 +343,18 @@ export default function ExpenseManagementStage({
             {methodCards.length === 0 ? (
               <div className="empty" style={{ padding: '36px 10px' }}>결제수단을 추가해 주세요.</div>
             ) : (
-              methodCards.map((method) => (
-                <div className="method-usage-card" key={method.id || 'unknown'}>
+              methodCards.map((method) => {
+                const isSelected = selectedMethodKey === method.key
+                const productText = methodProductLabel(method)
+                return (
+                <div
+                  className={`method-usage-card${isSelected ? ' selected' : ''}`}
+                  key={method.key}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => toggleMethodCard(method, event)}
+                  onKeyDown={(event) => handleMethodCardKeyDown(method, event)}
+                >
                   <div className="method-usage-head">
                     <div>
                       <b>{method.name}</b>
@@ -230,6 +362,7 @@ export default function ExpenseManagementStage({
                         {method.kind}
                         {method.annualFee ? ` · 연회비 ${formatKRW(method.annualFee)}` : ''}
                       </span>
+                      {productText && <small>{productText}</small>}
                     </div>
                     <strong>{formatKRW(method.amount)}</strong>
                   </div>
@@ -251,8 +384,74 @@ export default function ExpenseManagementStage({
                       </div>
                     </div>
                   ) : null}
+                  {isSelected && (
+                    <div className="method-usage-detail">
+                      <div className="method-usage-detail-grid">
+                        <div>
+                          <span>사용 건수</span>
+                          <b>{method.count || 0}건</b>
+                        </div>
+                        <div>
+                          <span>최근 사용</span>
+                          <b>{method.latestDate || '-'}</b>
+                        </div>
+                        <div>
+                          <span>월 한도</span>
+                          <b>{method.monthlyLimit ? formatKRW(method.monthlyLimit) : '-'}</b>
+                        </div>
+                        <div>
+                          <span>월 실적</span>
+                          <b>{method.monthlyTarget ? formatKRW(method.monthlyTarget) : '-'}</b>
+                        </div>
+                      </div>
+                      {method.cardProductSourceUrl && (
+                        <a
+                          className="method-product-link"
+                          href={method.cardProductSourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          카드 상품 보기
+                        </a>
+                      )}
+                      {replacePaymentMethod && replaceOptions.length > 0 && (
+                        <div className="method-replace-panel">
+                          <div className="payment-field">
+                            <span>사용내역 이동</span>
+                            <Picker
+                              value={replaceTargetId}
+                              options={replaceOptions}
+                              placeholder="옮길 결제수단"
+                              onChange={setReplaceTargetId}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-accent"
+                            disabled={!replaceTargetId}
+                            onClick={applyPaymentMethodReplace}
+                          >
+                            모두 변경
+                          </button>
+                        </div>
+                      )}
+                      {selectedConfiguredMethod && updatePaymentMethod && (
+                        <div className="method-edit-panel">
+                          <PaymentMethodManager
+                            key={selectedConfiguredMethod.id}
+                            methods={methods}
+                            updateMethod={updatePaymentMethod}
+                            view="form"
+                            initialEditId={selectedConfiguredMethod.id}
+                            resetAfterSubmit={false}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-              ))
+                )
+              })
             )}
           </div>
         </div>

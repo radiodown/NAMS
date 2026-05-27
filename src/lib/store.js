@@ -107,6 +107,9 @@ export function importDocument(raw) {
 
 export function clearStoredData() {
   clearBrowserAppStorage()
+  doc = buildDefaultDoc()
+  persist(doc)
+  notify()
 }
 
 export function useStoredSlice(path, fallback) {

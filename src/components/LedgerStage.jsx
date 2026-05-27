@@ -3,11 +3,19 @@ import { STAGE_META } from '../lib/categories'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
 import {
   detectRecurringTransaction,
+  fixedTransactionKey,
   parseTransactionText,
   recentEntrySuggestions,
+  recurringTransactionKey,
 } from '../lib/inputAssist'
 import { isLoanInterestCategory } from '../lib/loanInterest'
 import { parseAmountInput } from '../lib/numberInput'
+import {
+  defaultRecurringSuggestionSettings,
+  normalizeRecurringSuggestionSettings,
+} from '../lib/schema'
+import { useStoredSlice } from '../lib/store'
+import { STORE_PATHS } from '../lib/storePaths'
 import CalendarInput from './CalendarInput'
 import CategoryInput from './CategoryInput'
 import FixedExpenses from './FixedExpenses'
@@ -61,6 +69,22 @@ function addCategoryTotals(map, rows) {
   })
 }
 
+function recurringDismissedKeyName(type) {
+  return type === '지출' ? 'expenseDismissedKeys' : 'incomeDismissedKeys'
+}
+
+function addRecurringDismissedKey(settings, type, key) {
+  if (!key) return normalizeRecurringSuggestionSettings(settings)
+  const normalized = normalizeRecurringSuggestionSettings(settings)
+  const listName = recurringDismissedKeyName(type)
+  const current = normalized[listName]
+  if (current.includes(key)) return normalized
+  return {
+    ...normalized,
+    [listName]: [...current, key],
+  }
+}
+
 export default function LedgerStage({
   type,
   entries,
@@ -75,6 +99,7 @@ export default function LedgerStage({
   setFixedIncomeCollapsed,
   fixedExpenseEntries = [],
   previousFixedExpenseEntries = [],
+  fixedExpenseStatusById = {},
   fixedIncomeEntries = [],
   previousFixedIncomeEntries = [],
   categories,
@@ -110,8 +135,21 @@ export default function LedgerStage({
   const [historyCategory, setHistoryCategory] = useState('')
   const [historyPayment, setHistoryPayment] = useState('')
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false)
+  const [activeRecurringCandidate, setActiveRecurringCandidate] = useState(null)
+  const [rawRecurringSuggestionSettings, setRecurringSuggestionSettings] = useStoredSlice(
+    STORE_PATHS.settings.recurringSuggestions,
+    defaultRecurringSuggestionSettings
+  )
 
   const categoryOptions = categoryList
+  const recurringSuggestionSettings = useMemo(
+    () => normalizeRecurringSuggestionSettings(rawRecurringSuggestionSettings),
+    [rawRecurringSuggestionSettings]
+  )
+  const recurringDismissedKeys = useMemo(
+    () => recurringSuggestionSettings[recurringDismissedKeyName(type)] || [],
+    [recurringSuggestionSettings, type]
+  )
   const paymentOptions = useMemo(
     () => [
       { value: '', label: '미지정' },
@@ -211,15 +249,20 @@ export default function LedgerStage({
   )
   const allRowsSelected = rowIds.length > 0 && selectedRowIds.length === rowIds.length
   const recentSuggestions = useMemo(() => recentEntrySuggestions(rows), [rows])
-  const recurringCandidate = useMemo(
-    () =>
-      detectRecurringTransaction(
-        rows,
-        type,
-        type === '지출' ? fixed?.items || [] : type === '수입' ? fixedIncome?.items || [] : []
-      ),
-    [fixed?.items, fixedIncome?.items, rows, type]
+  const visibleActiveRecurringCandidate =
+    activeRecurringCandidate?.type === type ? activeRecurringCandidate : null
+  const fixedItemsForRecurring = useMemo(
+    () => (type === '지출' ? fixed?.items || [] : type === '수입' ? fixedIncome?.items || [] : []),
+    [fixed?.items, fixedIncome?.items, type]
   )
+  const nextRecurringCandidate = useMemo(
+    () =>
+      visibleActiveRecurringCandidate
+        ? null
+        : detectRecurringTransaction(rows, type, fixedItemsForRecurring, recurringDismissedKeys),
+    [fixedItemsForRecurring, recurringDismissedKeys, rows, type, visibleActiveRecurringCandidate]
+  )
+  const recurringCandidate = visibleActiveRecurringCandidate || nextRecurringCandidate
   const previousMonth = previousMonthOf(currentMonth)
   const currentMonthRows = useMemo(
     () => ledgerRows.filter((e) => monthOf(e.date) === currentMonth),
@@ -287,6 +330,22 @@ export default function LedgerStage({
     }, 2800)
     return () => window.clearInterval(timer)
   }, [categoryStats.length, currentMonth])
+
+  useEffect(() => {
+    if (visibleActiveRecurringCandidate || !nextRecurringCandidate?.key) return
+    setActiveRecurringCandidate(nextRecurringCandidate)
+  }, [
+    nextRecurringCandidate,
+    visibleActiveRecurringCandidate,
+  ])
+
+  useEffect(() => {
+    if (!visibleActiveRecurringCandidate?.key) return
+    const key = visibleActiveRecurringCandidate.key
+    const stillInRows = rows.some((row) => recurringTransactionKey(row, type) === key)
+    const alreadyFixed = fixedItemsForRecurring.some((item) => fixedTransactionKey(item, type) === key)
+    if (!stillInRows || alreadyFixed) setActiveRecurringCandidate(null)
+  }, [fixedItemsForRecurring, rows, type, visibleActiveRecurringCandidate])
 
   useEffect(() => {
     const available = new Set(rowIds)
@@ -556,6 +615,16 @@ export default function LedgerStage({
     }
     addCategory?.(type, payload.category)
     target.addItem(payload)
+    setActiveRecurringCandidate(null)
+  }
+
+  function dismissRecurringSuggestion() {
+    if (recurringCandidate?.key) {
+      setRecurringSuggestionSettings((current) =>
+        addRecurringDismissedKey(current, type, recurringCandidate.key)
+      )
+    }
+    setActiveRecurringCandidate(null)
   }
 
   function toggleRowSelection(id, checked) {
@@ -835,6 +904,7 @@ export default function LedgerStage({
           categories={categoryList}
           addCategory={addCategory}
           paymentMethods={paymentMethods}
+          paidStatusById={fixedExpenseStatusById}
           collapsed={fixedExpenseCollapsed}
           onCollapsedChange={setFixedExpenseCollapsed}
         />
@@ -863,9 +933,14 @@ export default function LedgerStage({
               {recurringCandidate.months}개월 반복
             </span>
           </div>
-          <button type="button" className="btn btn-sm btn-accent" onClick={addRecurringFixed}>
-            고정 위젯으로
-          </button>
+          <div className="recurring-suggestion-actions">
+            <button type="button" className="btn btn-sm" onClick={dismissRecurringSuggestion}>
+              숨기기
+            </button>
+            <button type="button" className="btn btn-sm btn-accent" onClick={addRecurringFixed}>
+              고정 위젯으로
+            </button>
+          </div>
         </div>
       )}
 

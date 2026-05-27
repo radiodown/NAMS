@@ -81,6 +81,13 @@ function itemColor(it, category, categories) {
   return String(it?.color || '').trim() || colorForCategory(category, categories)
 }
 
+function paidStatusTitle(status) {
+  if (!status) return ''
+  return [status.date, status.memo, status.amount ? formatKRW(status.amount) : '']
+    .filter(Boolean)
+    .join(' · ')
+}
+
 // Amount-weighted blend of a set of widgets' colors. Bigger expenses pull the
 // result toward their hue, matching the amount-proportional widths of the bar.
 function blendCategoryColor(members, category, categories) {
@@ -155,6 +162,7 @@ export default function FixedExpenses({
   categories = STAGE_META.지출.categories,
   addCategory,
   paymentMethods = [],
+  paidStatusById = {},
   collapsed: controlledCollapsed,
   onCollapsedChange,
 }) {
@@ -675,6 +683,7 @@ export default function FixedExpenses({
                         totalMonthly={totalMonthly}
                         maxUnitAmount={maxUnitAmount}
                         categories={categories}
+                        paidStatusById={paidStatusById}
                         isDropTarget={dropKey === unit.key}
                         onDragOver={(e) => handleDragOver(e, unit)}
                         onDragLeave={(e) => handleDragLeave(e, unit)}
@@ -693,11 +702,14 @@ export default function FixedExpenses({
                   const shareLabel = amount > 0 && share === 0 ? '<1%' : `${share}%`
                   const barWidth = maxUnitAmount > 0 ? (amount / maxUnitAmount) * 100 : 0
                   const widgetColor = itemColor(it, unit.category, categories)
+                  const paidStatus = isExpense ? paidStatusById[it.id] : null
                   return (
                     <div
                       className={`fixed-expense-widget${editingId === it.id ? ' editing' : ''}${
                         draggingId === it.id ? ' dragging' : ''
-                      }${dropKey === unit.key ? ' drop-target' : ''}`}
+                      }${dropKey === unit.key ? ' drop-target' : ''}${
+                        paidStatus ? ' is-paid' : ''
+                      }`}
                       key={unit.key}
                       data-unit-key={unit.key}
                       style={{ '--accent': widgetColor }}
@@ -767,6 +779,11 @@ export default function FixedExpenses({
                             : `${dayLabel} 미설정`}
                         </span>
                         <span className="fixed-widget-share">{shareLabel}</span>
+                        {paidStatus && (
+                          <span className="fixed-paid-badge" title={paidStatusTitle(paidStatus)}>
+                            지출됨
+                          </span>
+                        )}
                       </div>
                     </div>
                   )
@@ -962,6 +979,7 @@ function BundleWidget({
   totalMonthly,
   maxUnitAmount,
   categories,
+  paidStatusById = {},
   isDropTarget,
   onDragOver,
   onDragLeave,
@@ -972,10 +990,13 @@ function BundleWidget({
   const share = totalMonthly > 0 ? Math.round((subtotal / totalMonthly) * 100) : 0
   const shareLabel = subtotal > 0 && share === 0 ? '<1%' : `${share}%`
   const barWidth = maxUnitAmount > 0 ? Math.min((subtotal / maxUnitAmount) * 100, 100) : 0
+  const paidCount = members.filter((member) => paidStatusById[member.id]).length
 
   return (
     <div
-      className={`fixed-expense-widget is-bundle${isDropTarget ? ' drop-target' : ''}`}
+      className={`fixed-expense-widget is-bundle${isDropTarget ? ' drop-target' : ''}${
+        paidCount > 0 ? ' is-paid' : ''
+      }`}
       data-unit-key={unit.key}
       style={{ '--accent': color }}
       onDragOver={onDragOver}
@@ -1010,6 +1031,11 @@ function BundleWidget({
 
       <div className="fixed-widget-foot">
         <span className="fixed-widget-share">{shareLabel}</span>
+        {paidCount > 0 && (
+          <span className="fixed-paid-badge">
+            {paidCount === members.length ? '모두 지출됨' : `${paidCount}/${members.length} 지출됨`}
+          </span>
+        )}
       </div>
 
       <div className="fixed-bundle-members" role="tooltip">
@@ -1024,6 +1050,7 @@ function BundleWidget({
             <span className="fixed-bundle-member-amount">
               {formatKRW(Number(m.amount) || 0)}
             </span>
+            {paidStatusById[m.id] && <span className="fixed-paid-member">지출됨</span>}
           </span>
         ))}
       </div>

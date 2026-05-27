@@ -41,7 +41,9 @@ export function clearAppStorage() {
   try {
     for (let index = storage.length - 1; index >= 0; index -= 1) {
       const key = storage.key(index)
-      if (key?.startsWith(APP_STORAGE_PREFIX)) storage.removeItem(key)
+      if (key?.startsWith(APP_STORAGE_PREFIX) || key?.startsWith('nams.')) {
+        storage.removeItem(key)
+      }
     }
   } catch {
     // Ignore storage cleanup failures.

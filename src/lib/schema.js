@@ -299,11 +299,30 @@ export function defaultFixedSectionSettings() {
   }
 }
 
+export function defaultRecurringSuggestionSettings() {
+  return {
+    incomeSeenKeys: [],
+    expenseSeenKeys: [],
+    incomeDismissedKeys: [],
+    expenseDismissedKeys: [],
+  }
+}
+
 export function normalizeFixedSectionSettings(value) {
   const source = value && typeof value === 'object' ? value : {}
   return {
     incomeCollapsed: source.incomeCollapsed === true,
     expenseCollapsed: source.expenseCollapsed === true,
+  }
+}
+
+export function normalizeRecurringSuggestionSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    incomeSeenKeys: uniqueList(source.incomeSeenKeys),
+    expenseSeenKeys: uniqueList(source.expenseSeenKeys),
+    incomeDismissedKeys: uniqueList(source.incomeDismissedKeys),
+    expenseDismissedKeys: uniqueList(source.expenseDismissedKeys),
   }
 }
 
@@ -350,6 +369,7 @@ export function buildDefaultDoc() {
       theme: 'light',
       stages: defaultStageConfig(),
       fixedSections: defaultFixedSectionSettings(),
+      recurringSuggestions: defaultRecurringSuggestionSettings(),
       taxSettlement: defaultTaxSettings(),
     },
     stages: {
@@ -399,6 +419,9 @@ export function normalizeDoc(raw) {
       theme: source.settings?.theme === 'dark' ? 'dark' : 'light',
       stages: normalizeStageConfig(source.settings?.stages),
       fixedSections: normalizeFixedSectionSettings(source.settings?.fixedSections),
+      recurringSuggestions: normalizeRecurringSuggestionSettings(
+        source.settings?.recurringSuggestions
+      ),
       taxSettlement: normalizeTaxSettings(source.settings?.taxSettlement),
     },
     stages: {

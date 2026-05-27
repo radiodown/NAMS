@@ -3,6 +3,7 @@ export const STORE_PATHS = Object.freeze({
     stages: 'settings.stages',
     theme: 'settings.theme',
     fixedSections: 'settings.fixedSections',
+    recurringSuggestions: 'settings.recurringSuggestions',
     taxSettlement: 'settings.taxSettlement',
   }),
   income: Object.freeze({

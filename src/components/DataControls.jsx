@@ -28,6 +28,7 @@ export default function DataControls({
   variant = 'compact',
   importLabel = '가져오기',
   exportLabel = '내보내기',
+  accept = BACKUP_ACCEPT,
 }) {
   const inputRef = useRef(null)
 
@@ -42,7 +43,7 @@ export default function DataControls({
       <input
         ref={inputRef}
         type="file"
-        accept={BACKUP_ACCEPT}
+        accept={accept}
         onChange={handleFile}
         hidden
       />

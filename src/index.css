@@ -898,6 +898,18 @@ button {
   min-width: 0;
 }
 
+.recurring-suggestion-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: auto;
+}
+
+.recurring-suggestion-actions .btn {
+  white-space: nowrap;
+}
+
 .recurring-suggestion strong,
 .recurring-suggestion span {
   display: block;
@@ -2747,6 +2759,11 @@ td.memo {
   background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 
+.fixed-expense-widget.is-paid {
+  border-color: color-mix(in srgb, #16a34a 30%, var(--border));
+  background: color-mix(in srgb, #16a34a 5%, var(--surface));
+}
+
 .fixed-widget-head {
   display: flex;
   align-items: center;
@@ -2845,6 +2862,7 @@ td.memo {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .fixed-day-badge {
@@ -2863,6 +2881,24 @@ td.memo {
 .fixed-day-badge.soon {
   color: #fff;
   background: var(--accent);
+}
+
+.fixed-paid-badge {
+  font-size: 10px;
+  font-weight: 900;
+  color: #15803d;
+  background: color-mix(in srgb, #22c55e 16%, var(--surface));
+  border: 1px solid color-mix(in srgb, #22c55e 26%, transparent);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.fixed-paid-member {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 900;
+  color: #15803d;
 }
 
 .icon-btn {
@@ -5209,14 +5245,21 @@ td.memo {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface-2);
+  cursor: pointer;
   transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
 
-.method-usage-card:hover {
+.method-usage-card:hover,
+.method-usage-card.selected {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
   background: var(--surface);
   box-shadow: 0 10px 22px rgba(15, 23, 42, 0.09);
+}
+
+.method-usage-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .method-usage-head {
@@ -5234,11 +5277,85 @@ td.memo {
 }
 
 .method-usage-head span,
+.method-usage-head small,
 .usage-row span,
 .rank-row span {
   font-size: 12px;
   font-weight: 700;
   color: var(--muted);
+}
+
+.method-usage-head small {
+  line-height: 1.35;
+}
+
+.method-usage-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  cursor: default;
+}
+
+.method-usage-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.method-usage-detail-grid > div {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.method-usage-detail-grid span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.method-usage-detail-grid b {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.method-product-link {
+  align-self: flex-start;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.method-replace-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.method-edit-panel .payment-section {
+  padding: 10px;
+}
+
+.method-edit-panel .payment-section-title h4 {
+  font-size: 12px;
 }
 
 .usage-row,
@@ -5329,7 +5446,8 @@ td.memo {
   .invest-analysis-toggle:hover,
   .invest-card:hover,
   .invest-empty-widget:hover,
-  .method-usage-card:hover {
+  .method-usage-card:hover,
+  .method-usage-card.selected {
     transform: none;
   }
 }
@@ -5620,6 +5738,14 @@ td.memo {
     flex-direction: column;
   }
 
+  .recurring-suggestion-actions {
+    justify-content: stretch;
+  }
+
+  .recurring-suggestion-actions .btn {
+    flex: 1;
+  }
+
   .loan-interest-calculator,
   .fixed-widget-form .loan-interest-calculator {
     grid-template-columns: 1fr 1fr;
@@ -5757,6 +5883,11 @@ td.memo {
   .management-head {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .method-usage-detail-grid,
+  .method-replace-panel {
+    grid-template-columns: 1fr;
   }
 
   .chart-grid {

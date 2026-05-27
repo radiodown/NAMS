@@ -16,6 +16,30 @@ function compactText(value) {
   return normalizeText(value).replace(/\s+/g, '')
 }
 
+function paymentKey(source) {
+  const key = compactText(source?.paymentMethodId || source?.paymentMethod || '')
+  return key === '미지정' ? '' : key
+}
+
+function recurringMemoKey(source) {
+  const raw = String(source?.memo || source?.name || '').trim()
+  if (!raw) return ''
+
+  const withoutVariableFragments = raw
+    .replace(/\b20\d{2}[./-]\d{1,2}(?:[./-]\d{1,2})?\b/g, ' ')
+    .replace(/\b\d{1,2}[./-]\d{1,2}\b/g, ' ')
+    .replace(/\b\d{1,2}\.\d{1,2}\b(?!\s*[억만천km원])/gi, ' ')
+    .replace(/20\d{2}\s*년/g, ' ')
+    .replace(/\d{1,2}\s*월\s*\d{1,2}\s*일/g, ' ')
+    .replace(/\d{1,2}\s*월(?:분)?/g, ' ')
+    .replace(/\d{1,2}\s*일/g, ' ')
+    .replace(/\d+\s*(?:회차|차수|차|번째)/g, ' ')
+
+  const memo = compactText(withoutVariableFragments)
+  const category = compactText(source?.category || '')
+  return memo && memo !== category ? memo : ''
+}
+
 function findKeywordMapping(mappings, normalizedText) {
   return mappings
     .map((item) => ({
@@ -195,18 +219,26 @@ function recurringKey(entry) {
   return [
     compactText(entry.category || '기타'),
     Math.round(Number(entry.amount) || 0),
-    compactText(entry.memo || entry.category || ''),
-    entry.paymentMethodId || entry.paymentMethod || '',
+    recurringMemoKey(entry) || compactText(entry.memo || entry.category || ''),
+    paymentKey(entry),
   ].join('|')
+}
+
+export function recurringTransactionKey(source, type = source?.type) {
+  return [type || '', recurringKey(source)].join('|')
 }
 
 function fixedKey(item) {
   return [
     compactText(item.category || '기타'),
     Math.round(Number(item.amount) || 0),
-    compactText(item.name || item.memo || item.category || ''),
-    item.paymentMethodId || item.paymentMethod || '',
+    recurringMemoKey(item) || compactText(item.name || item.memo || item.category || ''),
+    paymentKey(item),
   ].join('|')
+}
+
+export function fixedTransactionKey(source, type = '') {
+  return [type || '', fixedKey(source)].join('|')
 }
 
 function mostCommonDay(rows) {
@@ -219,27 +251,32 @@ function mostCommonDay(rows) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0]?.[0] || ''
 }
 
-export function detectRecurringTransaction(entries, type, fixedItems = []) {
+export function detectRecurringTransaction(entries, type, fixedItems = [], ignoredKeys = []) {
   const fixedKeys = new Set(fixedItems.filter(Boolean).map(fixedKey))
+  const ignored = new Set(Array.isArray(ignoredKeys) ? ignoredKeys : [])
   const groups = new Map()
   entries
     .filter((entry) => entry?.type === type && !entry.fixedId && Number(entry.amount) > 0)
     .forEach((entry) => {
       const key = recurringKey(entry)
       if (fixedKeys.has(key)) return
+      const recommendationKey = recurringTransactionKey(entry, type)
+      if (ignored.has(recommendationKey)) return
       if (!groups.has(key)) groups.set(key, { rows: [], months: new Set() })
       const group = groups.get(key)
+      group.key = recommendationKey
       group.rows.push(entry)
       const month = monthOf(entry.date)
       if (month) group.months.add(month)
     })
 
   const candidates = [...groups.values()]
-    .filter((group) => group.rows.length >= 3 && group.months.size >= 2)
+    .filter((group) => group.rows.length >= 2 && group.months.size >= 2)
     .map((group) => {
       const rows = group.rows.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
       const latest = rows[0]
       return {
+        key: group.key,
         type,
         category: latest.category || '기타',
         amount: Number(latest.amount) || 0,

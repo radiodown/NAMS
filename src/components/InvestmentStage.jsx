@@ -275,7 +275,8 @@ function portfolioBucketForProduct(product) {
   if (product?.kind === '예금' || product?.kind === '적금') return PORTFOLIO_BUCKETS.safe
   if (product?.kind === '자산') {
     const type = String(product.assetType || product.name || '').toLowerCase()
-    if (/현금|cash|예금|적금|채권|bond|외화|달러|usd|엔화|jpy/.test(type)) return PORTFOLIO_BUCKETS.safe
+    if (/투자|주식|펀드|etf|isa/.test(type)) return PORTFOLIO_BUCKETS.risk
+    if (/현금|cash|입출금|통장|저축|예금|적금|전자금융|페이|머니|채권|bond|외화|달러|usd|엔화|jpy/.test(type)) return PORTFOLIO_BUCKETS.safe
     return PORTFOLIO_BUCKETS.alt
   }
   return PORTFOLIO_BUCKETS.alt
@@ -287,8 +288,8 @@ function safeAssetGroupForProduct(product) {
 
   const type = String(product?.assetType || product?.name || '').toLowerCase()
   if (/예금/.test(type)) return SAFE_ASSET_GROUPS.deposit
-  if (/적금/.test(type)) return SAFE_ASSET_GROUPS.saving
-  if (/현금|cash|파킹|입출금/.test(type)) return SAFE_ASSET_GROUPS.cash
+  if (/적금|저축/.test(type)) return SAFE_ASSET_GROUPS.saving
+  if (/현금|cash|파킹|입출금|통장|전자금융|페이|머니/.test(type)) return SAFE_ASSET_GROUPS.cash
   if (/채권|bond/.test(type)) return SAFE_ASSET_GROUPS.bond
   if (/외화|달러|usd|엔화|jpy|유로|eur/.test(type)) return SAFE_ASSET_GROUPS.foreign
   return SAFE_ASSET_GROUPS.other

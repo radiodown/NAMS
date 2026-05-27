@@ -60,6 +60,7 @@ export default function PaymentMethodManager({
   view = 'form',
   initialEditId = '',
   onEditRequest,
+  resetAfterSubmit = true,
 }) {
   const [form, setForm] = useState(blankForm)
   const [cardQuery, setCardQuery] = useState('')
@@ -125,7 +126,8 @@ export default function PaymentMethodManager({
     if (editing) updateMethod?.(form.id, payload)
     else if (canAdd) addMethod(payload)
     else return
-    resetForm()
+    if (resetAfterSubmit) resetForm()
+    else setManualOpen(true)
   }
 
   function quickAddFromCard() {
