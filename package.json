@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "stock:presets": "node tools/stock-preset-scraper/scrape-stock-presets.mjs",
     "card:scrape": "node tools/card-scraper/scrape-card-gorilla.mjs",
     "card:normalize": "node tools/card-scraper/normalize-card-products.mjs",
     "card:rules": "node tools/card-scraper/extract-benefit-rules.mjs",

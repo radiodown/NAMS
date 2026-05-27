@@ -14,7 +14,7 @@ export const STAGE_TABS = [
   '수입 관리',
   '지출',
   '지출 관리',
-  '그래프요약',
+  '그래프',
   '투자',
   '연말정산',
   '모의투자',
@@ -25,10 +25,20 @@ const DEFAULT_VISIBLE_STAGES = new Set([
   '수입 관리',
   '지출',
   '지출 관리',
-  '그래프요약',
+  '그래프',
   '투자',
   '연말정산',
 ])
+
+const STAGE_NAME_ALIASES = {
+  그래프요약: '그래프',
+  '그래프 요약': '그래프',
+}
+
+function normalizeStageName(name) {
+  const value = String(name ?? '').trim()
+  return STAGE_NAME_ALIASES[value] || value
+}
 
 // Tax-benefit tags an investment product can claim. Drives 연말정산 stage matching.
 export const TAX_BENEFIT_TAGS = ['없음', 'ISA', '연금저축', 'IRP', '주택청약', '청년도약계좌']
@@ -104,6 +114,14 @@ export function normalizeInvestmentTaxBenefit(kind, value) {
   return taxBenefitOptionsForKind(kind).includes(tag) ? tag : '없음'
 }
 
+export function normalizeInvestmentGroup(group) {
+  return {
+    id: str(group?.id) || createId(),
+    name: str(group?.name) || '그룹',
+    color: str(group?.color),
+  }
+}
+
 export function normalizeInvestment(product) {
   const kind = INVEST_KINDS.includes(str(product?.kind)) ? str(product.kind) : '예금'
   const base = {
@@ -113,6 +131,7 @@ export function normalizeInvestment(product) {
     date: str(product?.date),
     memo: str(product?.memo),
     color: str(product?.color),
+    groupId: str(product?.groupId),
     taxBenefit: normalizeInvestmentTaxBenefit(kind, product?.taxBenefit),
   }
   if (kind === '주식') {
@@ -309,7 +328,7 @@ export function normalizeStageConfig(value) {
   const used = new Set()
   const ordered = []
   arr(value).forEach((stage) => {
-    const name = typeof stage === 'string' ? stage : stage?.name
+    const name = normalizeStageName(typeof stage === 'string' ? stage : stage?.name)
     if (!STAGE_TABS.includes(name) || used.has(name)) return
     used.add(name)
     ordered.push({ name, visible: stage?.visible !== false })
@@ -404,6 +423,7 @@ export function normalizeDoc(raw) {
       },
       investment: {
         products: arr(investment.products).map(normalizeInvestment),
+        groups: arr(investment.groups).map(normalizeInvestmentGroup),
       },
       mockInvest: {
         portfolio: normalizeMockPortfolio(source.stages?.mockInvest?.portfolio),

@@ -1,3 +1,5 @@
+import { STOCK_SEARCH_PRESETS } from './stockSearchPresets.generated.js'
+
 export function normalizeStockSymbol(value) {
   const symbol = String(value || '').trim().toUpperCase().replace(/\s+/g, '')
   if (!symbol) return ''
@@ -34,35 +36,6 @@ const UPBIT_CANDLES_DAYS_URL = 'https://api.upbit.com/v1/candles/days'
 const NAVER_ETF_PAGE_SIZE = 100
 const NAVER_ETF_MAX_PAGES = 15
 const quoteMemoryCache = new Map()
-const STOCK_SEARCH_PRESETS = [
-  { symbol: 'BRK-B', name: 'Berkshire Hathaway Inc. Class B', keywords: ['berkshire', 'berkshire hathaway', 'brk.b', 'brkb', '워런버핏', '버크셔'], currency: 'USD', exchange: 'NYSE' },
-  { symbol: '005930.KS', name: '삼성전자', keywords: ['samsung', 'samsung electronics'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '000660.KS', name: 'SK하이닉스', keywords: ['sk hynix', '하이닉스'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '373220.KS', name: 'LG에너지솔루션', keywords: ['lg energy solution', '엘지에너지솔루션'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '207940.KS', name: '삼성바이오로직스', keywords: ['samsung biologics'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '005380.KS', name: '현대차', keywords: ['hyundai motor', '현대자동차'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '000270.KS', name: '기아', keywords: ['kia'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '035420.KS', name: 'NAVER', keywords: ['naver', '네이버'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '035720.KS', name: '카카오', keywords: ['kakao'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '051910.KS', name: 'LG화학', keywords: ['lg chem', '엘지화학'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '006400.KS', name: '삼성SDI', keywords: ['samsung sdi'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '005490.KS', name: 'POSCO홀딩스', keywords: ['posco', '포스코'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '068270.KS', name: '셀트리온', keywords: ['celltrion'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '105560.KS', name: 'KB금융', keywords: ['kb financial', '국민은행'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '055550.KS', name: '신한지주', keywords: ['shinhan financial', '신한금융'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '028260.KS', name: '삼성물산', keywords: ['samsung c&t'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '012330.KS', name: '현대모비스', keywords: ['hyundai mobis'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '066570.KS', name: 'LG전자', keywords: ['lg electronics', '엘지전자'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '096770.KS', name: 'SK이노베이션', keywords: ['sk innovation'], currency: 'KRW', exchange: 'KOSPI' },
-  { symbol: '035900.KQ', name: 'JYP Ent.', keywords: ['jyp', 'jyp entertainment', '제이와이피'], currency: 'KRW', exchange: 'KOSDAQ' },
-  { symbol: '041510.KQ', name: '에스엠', keywords: ['sm entertainment', 'sm ent'], currency: 'KRW', exchange: 'KOSDAQ' },
-  { symbol: '091990.KQ', name: '셀트리온헬스케어', keywords: ['celltrion healthcare'], currency: 'KRW', exchange: 'KOSDAQ' },
-  { symbol: '247540.KQ', name: '에코프로비엠', keywords: ['ecopro bm'], currency: 'KRW', exchange: 'KOSDAQ' },
-  { symbol: '086520.KQ', name: '에코프로', keywords: ['ecopro'], currency: 'KRW', exchange: 'KOSDAQ' },
-  { symbol: '069500.KS', name: 'KODEX 200', keywords: ['kodex200', '코덱스200'], currency: 'KRW', exchange: 'KOSPI', type: 'ETF' },
-  { symbol: '360750.KS', name: 'TIGER 미국S&P500', keywords: ['tiger s&p500', 's&p500'], currency: 'KRW', exchange: 'KOSPI', type: 'ETF' },
-  { symbol: '379800.KS', name: 'KODEX 미국S&P500TR', keywords: ['kodex s&p500'], currency: 'KRW', exchange: 'KOSPI', type: 'ETF' },
-]
 
 function isLocalDev() {
   if (typeof window === 'undefined') return false
@@ -453,12 +426,16 @@ function localStockSearch(query) {
             ? 2
             : compactSearchText(item.name).includes(compact)
               ? 3
-              : item.keywords.some((keyword) => compactSearchText(keyword).includes(compact))
+              : (item.keywords || []).some((keyword) => compactSearchText(keyword).includes(compact))
                 ? 4
                 : 99,
   }))
     .filter((item) => item.score < 99)
-    .sort((a, b) => a.score - b.score || a.name.localeCompare(b.name, 'ko'))
+    .sort((a, b) => {
+      const aRank = Number.isFinite(a.rank) ? a.rank : Number.MAX_SAFE_INTEGER
+      const bRank = Number.isFinite(b.rank) ? b.rank : Number.MAX_SAFE_INTEGER
+      return a.score - b.score || aRank - bRank || a.name.localeCompare(b.name, 'ko')
+    })
     .map(normalizeSearchItem)
     .filter(Boolean)
 }

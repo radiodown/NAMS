@@ -590,11 +590,25 @@ function savingsPreviewFromForm(form, today) {
 }
 
 export default function InvestmentStage({ investments }) {
-  const { items: rawItems, addItem, updateItem, removeItem, moveItem } = investments
+  const {
+    items: rawItems,
+    groups: rawGroups,
+    addItem,
+    updateItem,
+    removeItem,
+    moveItem,
+    groupItems,
+    renameGroup,
+    dissolveGroup,
+    setItemGroup,
+    pruneEmptyGroups,
+  } = investments
+  const safeRawItems = Array.isArray(rawItems) ? rawItems : []
+  const safeRawGroups = Array.isArray(rawGroups) ? rawGroups : []
   // Legacy 환율 items from older data are persisted but hidden from the grid —
   // representative FX rates now live in the top widget. The full list still
   // feeds summarize/exchangeRateMap so any saved rate keeps converting stocks.
-  const items = useMemo(() => rawItems.filter((p) => p.kind !== '환율'), [rawItems])
+  const items = useMemo(() => safeRawItems.filter((p) => p.kind !== '환율'), [safeRawItems])
   const today = todayStr()
   const [form, setForm] = useState(() => blankForm('예금'))
   const [editingId, setEditingId] = useState(null)
@@ -611,35 +625,113 @@ export default function InvestmentStage({ investments }) {
   // rawItems feeds summarize/exchangeRateMap so legacy 환율 widgets keep
   // providing FX rates for stock conversion. 환율 items contribute 0 to totals
   // so including them does not skew the numbers.
-  const totals = useMemo(() => summarize(rawItems, today), [rawItems, today])
-  const rates = useMemo(() => exchangeRateMap(rawItems), [rawItems])
-  const marketReport = useMemo(() => buildMarketReport(rawItems, today), [rawItems, today])
-  const widgetGroups = useMemo(() => {
-    const groupMeta = [
+  const totals = useMemo(() => summarize(safeRawItems, today), [safeRawItems, today])
+  const rates = useMemo(() => exchangeRateMap(safeRawItems), [safeRawItems])
+  const marketReport = useMemo(() => buildMarketReport(safeRawItems, today), [safeRawItems, today])
+  const groupNameById = useMemo(() => {
+    const map = new Map()
+    safeRawGroups.forEach((g) => map.set(g.id, g.name))
+    return map
+  }, [safeRawGroups])
+
+  // Build the section → inline cards tree the grid renders. A user group is
+  // represented as one widget-card in the same position as its first member.
+  const widgetSections = useMemo(() => {
+    const sectionMeta = [
       {
         id: 'stable',
         title: '예금 · 적금 · 현금자산',
         desc: '원금과 현금 흐름 중심',
         color: '#0f766e',
-        items: items.filter((p) => STABLE_ASSET_KINDS.has(p.kind)),
+        sectionKind: STABLE_ASSET_KINDS,
       },
       {
         id: 'market',
         title: '주식 · 비트코인',
         desc: '가격 변동 자산',
         color: '#d97706',
-        items: items.filter((p) => MARKET_ASSET_KINDS.has(p.kind)),
+        sectionKind: MARKET_ASSET_KINDS,
       },
     ]
-    return groupMeta.map((group) => ({
-      ...group,
-      total: group.items.reduce((sum, p) => sum + productMetrics(p, today, rates).current, 0),
-      monthlyOutflow: group.items.reduce((sum, p) => {
-        if (p.kind !== '적금') return sum
-        return sum + (Number(p.monthly) || 0)
-      }, 0),
-    }))
-  }, [items, rates, today])
+    const sectionOf = (kind) => {
+      if (STABLE_ASSET_KINDS.has(kind)) return 'stable'
+      if (MARKET_ASSET_KINDS.has(kind)) return 'market'
+      return null
+    }
+
+    // Decide where a group lives by its first member; later members of a
+    // different kind still render inside the same sub-section.
+    const groupSection = new Map()
+    items.forEach((p) => {
+      const sec = sectionOf(p.kind)
+      if (!sec) return
+      if (p.groupId && !groupSection.has(p.groupId)) {
+        groupSection.set(p.groupId, sec)
+      }
+    })
+
+    return sectionMeta.map((meta) => {
+      const sectionItems = items.filter((p) => meta.sectionKind.has(p.kind))
+      const groupBuckets = new Map()
+      const groupOrder = []
+      sectionItems.forEach((p) => {
+        const gid = p.groupId
+        const homeSection = gid ? groupSection.get(gid) : null
+        if (gid && homeSection === meta.id) {
+          if (!groupBuckets.has(gid)) {
+            groupBuckets.set(gid, [])
+            groupOrder.push(gid)
+          }
+          groupBuckets.get(gid).push(p)
+        }
+      })
+
+      const groupById = new Map(groupOrder.map((gid) => {
+        const members = groupBuckets.get(gid)
+        const total = members.reduce((sum, p) => sum + productMetrics(p, today, rates).current, 0)
+        const cost = members.reduce((sum, p) => sum + productMetrics(p, today, rates).cost, 0)
+        const profit = total - cost
+        return [gid, {
+          id: gid,
+          name: groupNameById.get(gid) || '새 그룹',
+          items: members,
+          total,
+          cost,
+          profit,
+        }]
+      }))
+
+      const seenGroups = new Set()
+      const displayCards = []
+      sectionItems.forEach((p) => {
+        const gid = p.groupId
+        if (gid && groupSection.get(gid) === meta.id && groupById.has(gid)) {
+          if (seenGroups.has(gid)) return
+          seenGroups.add(gid)
+          displayCards.push({ type: 'group', id: gid, group: groupById.get(gid) })
+          return
+        }
+        displayCards.push({ type: 'item', id: p.id, item: p })
+      })
+
+      return {
+        ...meta,
+        items: sectionItems,
+        displayCards,
+        total: sectionItems.reduce((sum, p) => sum + productMetrics(p, today, rates).current, 0),
+        monthlyOutflow: sectionItems.reduce((sum, p) => {
+          if (p.kind !== '적금') return sum
+          return sum + (Number(p.monthly) || 0)
+        }, 0),
+      }
+    })
+  }, [items, rates, today, groupNameById])
+
+  // Auto-cleanup: drop group metadata that has no members left after edits.
+  useEffect(() => {
+    if (!pruneEmptyGroups) return
+    pruneEmptyGroups()
+  }, [items, pruneEmptyGroups])
 
   useEffect(() => {
     if (!activeChartId) return
@@ -728,6 +820,7 @@ export default function InvestmentStage({ investments }) {
     timer: 0,
     active: false,
     dropId: null,
+    dropGroupId: null,
   })
   const ghostRef = useRef(null)
   const moveItemRef = useRef(moveItem)
@@ -1140,8 +1233,45 @@ export default function InvestmentStage({ investments }) {
   }
 
   const draggingItem = draggingId ? items.find((it) => it.id === draggingId) || null : null
+  const [dropGroupId, setDropGroupId] = useState(null)
 
-  // ---- widget reordering: drag a card onto another to drop it into that slot ----
+  function sectionKindOf(p) {
+    if (!p) return null
+    if (STABLE_ASSET_KINDS.has(p.kind)) return 'stable'
+    if (MARKET_ASSET_KINDS.has(p.kind)) return 'market'
+    return null
+  }
+
+  // Cross-section drops are blocked so a user group never straddles the
+  // safe/market split that the report relies on.
+  function dropAcceptsTarget(source, target) {
+    if (!source || !target || source.id === target.id) return false
+    return sectionKindOf(source) === sectionKindOf(target)
+  }
+
+  // Drop a card onto another card. Same-group drop reorders the items array so
+  // the user can rearrange siblings; every other case rewrites groupId so the
+  // gesture forms / joins / leaves a group.
+  function applyCardDrop(source, target) {
+    if (!dropAcceptsTarget(source, target)) return
+    const sameGroup = source.groupId && source.groupId === target.groupId
+    if (sameGroup) {
+      moveItem(source.id, target.id)
+      return
+    }
+    if (!source.groupId && !target.groupId) {
+      groupItems(source.id, target.id, '새 그룹')
+      return
+    }
+    setItemGroup(source.id, target.groupId || '')
+  }
+
+  function applyGroupHeaderDrop(source, groupId) {
+    if (!source || !groupId) return
+    if (source.groupId === groupId) return
+    setItemGroup(source.id, groupId)
+  }
+
   function handleDragStart(e, p) {
     setDraggingId(p.id)
     e.dataTransfer.effectAllowed = 'move'
@@ -1155,13 +1285,16 @@ export default function InvestmentStage({ investments }) {
   function handleDragEnd() {
     setDraggingId(null)
     setDropId(null)
+    setDropGroupId(null)
   }
 
   function handleDragOver(e, p) {
-    if (!draggingId || p.id === draggingId) return
+    if (!draggingItem || p.id === draggingId) return
+    if (!dropAcceptsTarget(draggingItem, p)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     if (dropId !== p.id) setDropId(p.id)
+    if (dropGroupId) setDropGroupId(null)
   }
 
   function handleDragLeave(e, p) {
@@ -1171,10 +1304,35 @@ export default function InvestmentStage({ investments }) {
 
   function handleDrop(e, p) {
     e.preventDefault()
-    const source = draggingId
+    const source = draggingItem
     setDraggingId(null)
     setDropId(null)
-    if (source && source !== p.id) moveItem(source, p.id)
+    setDropGroupId(null)
+    applyCardDrop(source, p)
+  }
+
+  // Drag a card onto a group's header to add the card to that group, even when
+  // the group's card grid is empty / off-screen.
+  function handleGroupDragOver(e, groupId) {
+    if (!draggingItem) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dropGroupId !== groupId) setDropGroupId(groupId)
+    if (dropId) setDropId(null)
+  }
+
+  function handleGroupDragLeave(e, groupId) {
+    if (e.currentTarget.contains(e.relatedTarget)) return
+    if (dropGroupId === groupId) setDropGroupId(null)
+  }
+
+  function handleGroupDrop(e, groupId) {
+    e.preventDefault()
+    const source = draggingItem
+    setDraggingId(null)
+    setDropId(null)
+    setDropGroupId(null)
+    applyGroupHeaderDrop(source, groupId)
   }
 
   function positionGhost(x, y) {
@@ -1203,9 +1361,15 @@ export default function InvestmentStage({ investments }) {
     }, LONG_PRESS_MS)
   }
 
-  // Keep the latest reorder action reachable from the one-time touch listeners.
+  // Keep the latest drag-merge logic reachable from the one-time touch listeners.
+  const dragActionRef = useRef({ items: [], applyCard: () => {}, applyGroup: () => {} })
   useEffect(() => {
     moveItemRef.current = moveItem
+    dragActionRef.current = {
+      items,
+      applyCard: applyCardDrop,
+      applyGroup: applyGroupHeaderDrop,
+    }
   })
 
   // Drop the ghost at the finger the instant a long-press promotes to a drag.
@@ -1220,8 +1384,10 @@ export default function InvestmentStage({ investments }) {
       s.id = null
       s.active = false
       s.dropId = null
+      s.dropGroupId = null
       setDraggingId(null)
       setDropId(null)
+      setDropGroupId(null)
       setTouchDragging(false)
     }
 
@@ -1245,12 +1411,32 @@ export default function InvestmentStage({ investments }) {
       e.preventDefault() // dragging now — suppress page scroll
       positionGhost(t.clientX, t.clientY)
       const el = document.elementFromPoint(t.clientX, t.clientY)
+      // Group header has priority over a card so dropping on a header always
+      // means "join this group" even when the header sits on top of cards.
+      const groupEl = el && el.closest('[data-drop-group-id]')
       const cardEl = el && el.closest('[data-card-id]')
-      const id = cardEl ? cardEl.getAttribute('data-card-id') : null
-      const validId = id && id !== s.id ? id : null
-      if (s.dropId !== validId) {
-        s.dropId = validId
-        setDropId(validId)
+      const live = dragActionRef.current
+      const source = live.items.find((it) => it.id === s.id) || null
+
+      let validCardId = null
+      let validGroupId = null
+      if (groupEl) {
+        validGroupId = groupEl.getAttribute('data-drop-group-id')
+      } else if (cardEl) {
+        const id = cardEl.getAttribute('data-card-id')
+        const target = id ? live.items.find((it) => it.id === id) : null
+        if (id && id !== s.id && dropAcceptsTarget(source, target)) {
+          validCardId = id
+        }
+      }
+
+      if (s.dropId !== validCardId) {
+        s.dropId = validCardId
+        setDropId(validCardId)
+      }
+      if (s.dropGroupId !== validGroupId) {
+        s.dropGroupId = validGroupId
+        setDropGroupId(validGroupId)
       }
     }
 
@@ -1259,7 +1445,16 @@ export default function InvestmentStage({ investments }) {
       if (s.id == null) return
       if (s.active) {
         if (e.cancelable) e.preventDefault() // swallow the trailing click
-        if (s.dropId && s.dropId !== s.id) moveItemRef.current(s.id, s.dropId)
+        const live = dragActionRef.current
+        const source = live.items.find((it) => it.id === s.id) || null
+        if (source) {
+          if (s.dropGroupId) {
+            live.applyGroup(source, s.dropGroupId)
+          } else if (s.dropId && s.dropId !== s.id) {
+            const target = live.items.find((it) => it.id === s.dropId)
+            if (target) live.applyCard(source, target)
+          }
+        }
       }
       endSession()
     }
@@ -1784,60 +1979,83 @@ export default function InvestmentStage({ investments }) {
         </div>
       ) : (
         <div className="invest-section-stack">
-          {widgetGroups
-            .filter((group) => group.items.length > 0)
-            .map((group) => (
-              <section
-                className={`invest-section invest-section-${group.id}`}
-                key={group.id}
-                style={{ '--accent': group.color }}
-              >
-                <div className="invest-section-head">
-                  <div>
-                    <div className="invest-section-title">
-                      <span className="invest-dot" style={{ background: group.color }} />
-                      {group.title}
+          {widgetSections
+            .filter((section) => section.items.length > 0)
+            .map((section) => {
+              const renderCard = (p) => (
+                <Fragment key={p.id}>
+                  <ProductCard
+                    product={p}
+                    today={today}
+                    rates={rates}
+                    editing={editingId === p.id}
+                    selected={activeChartId === p.id}
+                    dragging={draggingId === p.id}
+                    dropTarget={dropId === p.id}
+                    quoteStatus={quoteStatus[p.id]}
+                    onClick={() => togglePriceChart(p)}
+                    onEdit={() => startEdit(p)}
+                    onRemove={() => handleRemove(p)}
+                    onDragStart={(e) => handleDragStart(e, p)}
+                    onDragEnd={handleDragEnd}
+                    onDragOver={(e) => handleDragOver(e, p)}
+                    onDragLeave={(e) => handleDragLeave(e, p)}
+                    onDrop={(e) => handleDrop(e, p)}
+                    onTouchStart={(e) => handleTouchStart(e, p)}
+                  />
+                  {activeChartId === p.id && MARKET_ASSET_KINDS.has(p.kind) && (
+                    <StockChartPanel product={p} onClose={() => setActiveChartId(null)} />
+                  )}
+                </Fragment>
+              )
+
+              return (
+                <section
+                  className={`invest-section invest-section-${section.id}`}
+                  key={section.id}
+                  style={{ '--accent': section.color }}
+                >
+                  <div className="invest-section-head">
+                    <div className="invest-section-headline">
+                      <div className="invest-section-title">
+                        <span className="invest-dot" style={{ background: section.color }} />
+                        {section.title}
+                        <span className="invest-section-count">{section.items.length}</span>
+                      </div>
+                      <div className="invest-section-desc">{section.desc}</div>
                     </div>
-                    <div className="invest-section-total">{group.desc}</div>
-                  </div>
-                  <div className="invest-section-meta">
-                    {group.monthlyOutflow > 0 && (
-                      <span className="invest-section-monthly">월 납입 {formatKRW(group.monthlyOutflow)}</span>
-                    )}
-                    <span className="invest-section-count">{group.items.length}개</span>
-                    <span className="invest-section-total">{formatKRW(group.total)}</span>
-                  </div>
-                </div>
-                <div className="invest-widget-grid">
-                  {group.items.map((p) => (
-                    <Fragment key={p.id}>
-                      <ProductCard
-                        product={p}
-                        today={today}
-                        rates={rates}
-                        editing={editingId === p.id}
-                        selected={activeChartId === p.id}
-                        dragging={draggingId === p.id}
-                        dropTarget={dropId === p.id}
-                        quoteStatus={quoteStatus[p.id]}
-                        onClick={() => togglePriceChart(p)}
-                        onEdit={() => startEdit(p)}
-                        onRemove={() => handleRemove(p)}
-                        onDragStart={(e) => handleDragStart(e, p)}
-                        onDragEnd={handleDragEnd}
-                        onDragOver={(e) => handleDragOver(e, p)}
-                        onDragLeave={(e) => handleDragLeave(e, p)}
-                        onDrop={(e) => handleDrop(e, p)}
-                        onTouchStart={(e) => handleTouchStart(e, p)}
-                      />
-                      {activeChartId === p.id && MARKET_ASSET_KINDS.has(p.kind) && (
-                        <StockChartPanel product={p} onClose={() => setActiveChartId(null)} />
+                    <div className="invest-section-meta">
+                      {section.monthlyOutflow > 0 && (
+                        <span className="invest-section-monthly">월 납입 {formatKRW(section.monthlyOutflow)}</span>
                       )}
-                    </Fragment>
-                  ))}
-                </div>
-              </section>
-            ))}
+                      <span className="invest-section-total">{formatKRW(section.total)}</span>
+                    </div>
+                  </div>
+
+                  <div className="invest-widget-grid">
+                    {section.displayCards.map((entry) =>
+                      entry.type === 'group' ? (
+                        <InvestmentGroupCard
+                          key={entry.id}
+                          group={entry.group}
+                          accent={section.color}
+                          today={today}
+                          rates={rates}
+                          dropActive={dropGroupId === entry.id}
+                          onRename={(name) => renameGroup(entry.id, name)}
+                          onDissolve={() => dissolveGroup(entry.id)}
+                          onDragOver={(e) => handleGroupDragOver(e, entry.id)}
+                          onDragLeave={(e) => handleGroupDragLeave(e, entry.id)}
+                          onDrop={(e) => handleGroupDrop(e, entry.id)}
+                        />
+                      ) : (
+                        renderCard(entry.item)
+                      )
+                    )}
+                  </div>
+                </section>
+              )
+            })}
         </div>
       )}
 
@@ -2159,6 +2377,260 @@ function InvestmentPieHoverPanel({ position }) {
   )
 }
 
+function InvestmentGroupCard({
+  group,
+  accent,
+  today,
+  rates,
+  dropActive,
+  onRename,
+  onDissolve,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+}) {
+  const [editing, setEditing] = useState(false)
+  const [folderOpen, setFolderOpen] = useState(false)
+  const [draft, setDraft] = useState(group.name)
+  const inputRef = useRef(null)
+  const memberNames = group.items.map((item) => item.name || item.kind).filter(Boolean)
+  const memberText =
+    memberNames.length > 3
+      ? `${memberNames.slice(0, 3).join(', ')} 외 ${memberNames.length - 3}개`
+      : memberNames.join(', ')
+  const returnPct = group.cost > 0 ? (group.profit / group.cost) * 100 : 0
+
+  useEffect(() => {
+    if (!editing) setDraft(group.name)
+  }, [group.name, editing])
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+  }, [editing])
+
+  function commit() {
+    const next = draft.trim() || group.name
+    if (next !== group.name) onRename?.(next)
+    setEditing(false)
+  }
+
+  return (
+    <>
+      <div
+        className={`invest-card invest-group-card${dropActive ? ' drop-target' : ''}`}
+        style={{ '--accent': accent }}
+        data-drop-group-id={group.id}
+        role="button"
+        tabIndex={0}
+        aria-label={`${group.name} 그룹 열기`}
+        onClick={() => {
+          if (!editing) setFolderOpen(true)
+        }}
+        onKeyDown={(e) => {
+          if (editing) return
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setFolderOpen(true)
+          }
+        }}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        <div className="invest-card-head">
+          <span className="invest-card-name">
+            <span className="invest-dot" style={{ background: accent }} />
+            그룹
+          </span>
+          <div className="invest-card-tools">
+            <span className="quote-badge idle">{group.items.length}개</span>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={(e) => {
+                e.stopPropagation()
+                setEditing(true)
+              }}
+              aria-label={`${group.name} 그룹 이름 수정`}
+              title="이름 수정"
+            >
+              ✎
+            </button>
+            <button
+              type="button"
+              className="icon-btn danger"
+              onClick={(e) => {
+                e.stopPropagation()
+                onDissolve()
+              }}
+              aria-label={`${group.name} 그룹 해제`}
+              title="그룹 해제"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <div className="invest-widget-body">
+          {editing ? (
+            <input
+              ref={inputRef}
+              className="invest-group-name-input"
+              value={draft}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commit()
+                if (e.key === 'Escape') {
+                  setDraft(group.name)
+                  setEditing(false)
+                }
+              }}
+              maxLength={24}
+            />
+          ) : (
+            <div className="invest-group-name">
+              <strong>{group.name}</strong>
+            </div>
+          )}
+          <div className="invest-widget-value">{formatKRW(group.total)}</div>
+          <div className={`invest-widget-profit ${profitClass(group.profit)}`}>
+            {signedKRW(group.profit)}
+            {group.cost > 0 && (
+              <span>
+                {' '}
+                ({returnPct >= 0 ? '+' : ''}
+                {returnPct.toFixed(2)}%)
+              </span>
+            )}
+          </div>
+          <div className="invest-widget-detail">{memberText || '그룹 항목 없음'}</div>
+        </div>
+      </div>
+      {folderOpen && (
+        <InvestmentGroupFolder
+          group={group}
+          accent={accent}
+          today={today}
+          rates={rates}
+          onClose={() => setFolderOpen(false)}
+        />
+      )}
+    </>
+  )
+}
+
+function InvestmentGroupFolder({ group, accent, today, rates, onClose }) {
+  const returnPct = group.cost > 0 ? (group.profit / group.cost) * 100 : 0
+
+  return (
+    <div className="fixed-modal-backdrop invest-folder-backdrop" onClick={onClose}>
+      <div
+        className="invest-folder-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${group.name} 그룹`}
+        style={{ '--accent': accent }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="invest-folder-head">
+          <div>
+            <div className="invest-folder-title">
+              <span className="invest-dot" style={{ background: accent }} />
+              <h3>{group.name}</h3>
+              <span>{group.items.length}개</span>
+            </div>
+            <div className="invest-folder-summary">
+              <strong>{formatKRW(group.total)}</strong>
+              <b className={profitClass(group.profit)}>
+                {signedKRW(group.profit)}
+                {group.cost > 0 && (
+                  <>
+                    {' '}
+                    ({returnPct >= 0 ? '+' : ''}
+                    {returnPct.toFixed(2)}%)
+                  </>
+                )}
+              </b>
+            </div>
+          </div>
+          <button className="icon-btn" onClick={onClose} aria-label="그룹 닫기" title="닫기">
+            ×
+          </button>
+        </div>
+
+        <div className="invest-folder-list">
+          {group.items.map((item) => {
+            const metrics = productMetrics(item, today, rates)
+            const color = item.color || INVEST_META[item.kind]?.color || accent
+            return (
+              <div className="invest-folder-item" key={item.id} style={{ '--accent': color }}>
+                <div className="invest-folder-item-main">
+                  <span className="invest-dot" style={{ background: color }} />
+                  <div>
+                    <strong>{item.name || item.kind}</strong>
+                    <span>{item.kind}</span>
+                  </div>
+                </div>
+                <div className="invest-folder-item-value">
+                  <strong>{formatKRW(metrics.current)}</strong>
+                  <span className={profitClass(metrics.profit)}>{signedKRW(metrics.profit)}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProfitPill({ profit, returnPct, label, showPct = true, costForPct = 0 }) {
+  const tone = profit > 0 ? 'pos' : profit < 0 ? 'neg' : 'flat'
+  const pct = Number.isFinite(returnPct)
+    ? returnPct
+    : costForPct > 0
+      ? (profit / costForPct) * 100
+      : null
+  const strong = pct != null && Math.abs(pct) >= 10 ? ' strong' : ''
+  const arrow = tone === 'pos' ? '▲' : tone === 'neg' ? '▼' : ''
+  return (
+    <span className={`invest-profit-pill ${tone}${strong}`}>
+      {arrow && <span className="invest-profit-arrow" aria-hidden="true">{arrow}</span>}
+      <b>{signedKRW(profit)}</b>
+      {showPct && pct != null && (
+        <i>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</i>
+      )}
+      {label && <em>{label}</em>}
+    </span>
+  )
+}
+
+function ProgressBar({ value, total, accent }) {
+  const denom = Number(total) || 0
+  const pct = denom > 0 ? Math.min(100, Math.max(0, (Number(value) / denom) * 100)) : 0
+  return (
+    <span className="invest-progress" aria-hidden="true">
+      <i style={{ width: `${pct}%`, background: accent }} />
+    </span>
+  )
+}
+
+function daysUntilMaturity(dateStr, months) {
+  if (!dateStr || !Number.isFinite(months) || months <= 0) return null
+  const [y, m, d] = String(dateStr).split('-').map(Number)
+  if (!y || !m) return null
+  const start = new Date(y, (m || 1) - 1, d || 1)
+  if (Number.isNaN(start.getTime())) return null
+  const maturity = new Date(start.getFullYear(), start.getMonth() + months, start.getDate())
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return Math.round((maturity - today) / (1000 * 60 * 60 * 24))
+}
+
 function ProductCard({
   product: p,
   today,
@@ -2184,34 +2656,112 @@ function ProductCard({
     p.kind === '주식' || p.kind === '비트코인' || p.kind === '환율'
       ? quoteStatus || { state: 'idle', text: p.kind === '환율' || quoteSymbolForProduct(p) ? '대기' : '코드 없음' }
       : null
-  let kindDetail = ''
-  let profitText = `수익 ${signedKRW(m.profit)}`
-  let valueText = formatKRW(m.current)
   const clickable = MARKET_ASSET_KINDS.has(p.kind)
+  const missingFx = p.kind === '주식' && m.currency !== 'KRW' && !m.exchangeRate
+
+  let valueText = formatKRW(m.current)
+  let valueSub = null
+  let metaNode = null
+  let pillNode = null
 
   if (p.kind === '예금') {
-    kindDetail = `예금 · ${m.elapsed}/${m.months}개월`
+    const dday = daysUntilMaturity(p.date, m.months)
+    const dLabel =
+      m.elapsed >= m.months
+        ? '만기'
+        : dday != null && dday > 0
+          ? `D-${dday}`
+          : null
+    pillNode = (
+      <ProfitPill profit={m.profit} costForPct={m.cost} showPct={m.cost > 0} />
+    )
+    metaNode = (
+      <>
+        <ProgressBar value={m.elapsed} total={m.months} accent={color} />
+        <span className="invest-meta-text">{m.elapsed}/{m.months}개월</span>
+        {dLabel && <span className="invest-meta-chip">{dLabel}</span>}
+      </>
+    )
   } else if (p.kind === '적금') {
-    kindDetail = `적금 · 월 납입 ${formatKRW(m.monthly)} · ${m.round}/${m.totalRounds}회차`
-    profitText = `납입원금 ${formatKRW(m.cost)} · 이자 ${signedKRW(m.profit)}`
+    pillNode = (
+      <ProfitPill
+        profit={m.profit}
+        costForPct={m.cost}
+        showPct={m.cost > 0}
+        label={`납입 ${formatKRW(m.cost)}`}
+      />
+    )
+    metaNode = (
+      <>
+        <ProgressBar value={m.round} total={m.totalRounds} accent={color} />
+        <span className="invest-meta-text">{m.round}/{m.totalRounds}회차</span>
+        {m.monthly > 0 && (
+          <span className="invest-meta-chip">월 {formatKRW(m.monthly)}</span>
+        )}
+      </>
+    )
   } else if (p.kind === '비트코인') {
-    kindDetail = `${m.quantity.toLocaleString('ko-KR', { maximumFractionDigits: 8 })} BTC · 현재 ${formatKRW(m.currentPrice)}`
-    profitText = `${signedKRW(m.profit)} (${m.returnPct >= 0 ? '+' : ''}${m.returnPct.toFixed(2)}%)`
+    pillNode = <ProfitPill profit={m.profit} returnPct={m.returnPct} />
+    valueSub = (
+      <span className="invest-value-sub">
+        {m.quantity.toLocaleString('ko-KR', { maximumFractionDigits: 8 })} BTC
+      </span>
+    )
+    metaNode = (
+      <span className="invest-meta-text">현재 {formatKRW(m.currentPrice)}</span>
+    )
   } else if (p.kind === '자산') {
-    kindDetail = `${m.assetType || '기타'} · ${p.date}`
-    profitText = `평가손익 ${signedKRW(m.profit)}`
+    pillNode = (
+      <ProfitPill profit={m.profit} costForPct={m.cost} showPct={m.cost > 0} />
+    )
+    metaNode = (
+      <>
+        <span className="invest-meta-chip">{m.assetType || '기타'}</span>
+        <span className="invest-meta-text">{p.date}</span>
+      </>
+    )
   } else if (p.kind === '환율') {
-    kindDetail = `${m.baseCurrency}/${m.targetCurrency} · ${formatRate(m.rate)}`
-    profitText = `1 ${m.baseCurrency} = ${formatRate(m.rate)} ${m.targetCurrency}`
     valueText = `${formatRate(m.rate)} ${m.targetCurrency}`
-  } else if (m.currency !== 'KRW' && !m.exchangeRate) {
-    kindDetail = `${p.quoteSymbol || '코드 없음'} · 현재 ${formatCurrency(m.currentPrice, m.currency)} · ${m.currency}/KRW 환율 조회 필요`
-    profitText = `${m.currency}/KRW 환율 조회 필요`
+    metaNode = (
+      <span className="invest-meta-text">
+        1 {m.baseCurrency} = {formatRate(m.rate)} {m.targetCurrency}
+      </span>
+    )
+  } else if (missingFx) {
     valueText = '환율 필요'
+    pillNode = (
+      <span className="invest-profit-pill warn">
+        <b>{m.currency}/KRW 환율 조회 필요</b>
+      </span>
+    )
+    valueSub = (
+      <span className="invest-value-sub">
+        현재 {formatCurrency(m.currentPrice, m.currency)}
+      </span>
+    )
+    metaNode = (
+      <>
+        {p.quoteSymbol && <span className="invest-meta-chip">{p.quoteSymbol}</span>}
+        {m.currency && <span className="invest-meta-chip ghost">{m.currency}</span>}
+      </>
+    )
   } else {
-    const fxText = m.currency === 'KRW' ? '' : ` · 환율 ${formatRate(m.exchangeRate)}`
-    kindDetail = `${p.quoteSymbol || '코드 없음'} · 현재 ${formatCurrency(m.currentPrice, m.currency)}${fxText}`
-    profitText = `${signedKRW(m.profit)} (${m.returnPct >= 0 ? '+' : ''}${m.returnPct.toFixed(2)}%)`
+    pillNode = <ProfitPill profit={m.profit} returnPct={m.returnPct} />
+    valueSub = (
+      <span className="invest-value-sub">
+        현재 {formatCurrency(m.currentPrice, m.currency)}
+      </span>
+    )
+    metaNode = (
+      <>
+        {p.quoteSymbol && <span className="invest-meta-chip">{p.quoteSymbol}</span>}
+        {m.currency && m.currency !== 'KRW' && (
+          <span className="invest-meta-chip ghost">
+            {m.currency} · {formatRate(m.exchangeRate)}
+          </span>
+        )}
+      </>
+    )
   }
 
   return (
@@ -2244,15 +2794,10 @@ function ProductCard({
       onTouchStart={onTouchStart}
     >
       <div className="invest-card-head">
-        <span className="invest-card-name">
-          <span className="invest-dot" style={{ background: color }} />
-          {p.kind}
-        </span>
+        <span className="invest-kind-chip">{p.kind}</span>
         <div className="invest-card-tools">
-          {status ? (
+          {status && (
             <span className={`quote-badge ${status.state}`}>{status.text}</span>
-          ) : (
-            <span className="invest-card-date">{p.date}</span>
           )}
           <button
             className="icon-btn"
@@ -2279,12 +2824,16 @@ function ProductCard({
         </div>
       </div>
 
-      <div className="invest-widget-body">
-        <div className="invest-widget-name">{p.name}</div>
-        <div className="invest-widget-value">{valueText}</div>
-        <div className={`invest-widget-profit ${profitClass(m.profit)}`}>{profitText}</div>
-        <div className="invest-widget-detail">{kindDetail}</div>
+      <div className="invest-card-body">
+        <div className="invest-card-name" title={p.name}>{p.name}</div>
+        <div className="invest-card-value">
+          <strong>{valueText}</strong>
+          {valueSub}
+        </div>
+        {pillNode}
       </div>
+
+      {metaNode && <div className="invest-card-meta">{metaNode}</div>}
     </div>
   )
 }

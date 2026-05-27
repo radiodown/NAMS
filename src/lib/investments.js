@@ -220,29 +220,30 @@ export function projectAssets(products, cash, today, horizonMonths, options = {}
     const baseAmount = Math.max(0, Number(options.scenario.baseAmount) || 0)
     const investmentWeight = Math.min(100, Math.max(0, Number(options.scenario.investmentWeight) || 0))
     const annualReturn = Number(options.scenario.annualReturn) || 0
+    const wageGrowth = Number(options.scenario.wageGrowth) || 0
     const monthlyIncome = Math.max(0, Number(options.scenario.monthlyIncome) || 0)
     const monthlyIncomeInvestmentWeight = Math.min(
       100,
       Math.max(0, Number(options.scenario.monthlyIncomeInvestmentWeight) || 0)
     )
     const investmentBase = baseAmount * (investmentWeight / 100)
-    const cashBase = baseAmount - investmentBase
     const monthlyInvestment = monthlyIncome * (monthlyIncomeInvestmentWeight / 100)
-    const monthlyCash = monthlyIncome - monthlyInvestment
     const points = []
 
     for (let t = 0; t <= horizonMonths; t++) {
       const recurringInvestment = Array.from({ length: t }, (_, index) => index).reduce(
-        (sum, index) => sum + monthlyInvestment * projectedReturnMultiplier(annualReturn, t - index - 1),
+        (sum, index) =>
+          sum +
+          monthlyInvestment *
+            projectedReturnMultiplier(wageGrowth, index) *
+            projectedReturnMultiplier(annualReturn, t - index - 1),
         0
       )
       const 투자 = investmentBase * projectedReturnMultiplier(annualReturn, t) + recurringInvestment
-      const 현금 = cashBase + monthlyCash * t
       points.push({
         month: addMonthLabel(today, t),
-        현금,
         투자,
-        총자산: 현금 + 투자,
+        총자산: 투자,
       })
     }
     return points

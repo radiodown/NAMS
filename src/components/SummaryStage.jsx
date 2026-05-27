@@ -15,6 +15,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
 } from 'recharts'
 import { formatKRW, compactKRW, monthOf, todayStr } from '../lib/format'
 import { exchangeRateMap, projectAssets, stockMetrics, summarize } from '../lib/investments'
@@ -24,12 +25,11 @@ const PIE_COLORS = [
   '#8b5cf6', '#14b8a6', '#f97316', '#84cc16', '#06b6d4', '#a855f7',
 ]
 const KIND_COLORS = { 예금: '#0891b2', 적금: '#4f46e5', 주식: '#d97706', 비트코인: '#f97316', 자산: '#0f766e', 환율: '#059669' }
-const HORIZONS = [
-  { label: '1년', months: 12 },
-  { label: '3년', months: 36 },
-  { label: '5년', months: 60 },
-  { label: '10년', months: 120 },
-]
+const DEFAULT_HORIZON_YEARS = 5
+const MIN_HORIZON_YEARS = 1
+const MAX_HORIZON_YEARS = 80
+const MIN_WAGE_GROWTH = -10
+const MAX_WAGE_GROWTH = 20
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 const roundToStep = (value, step = 0.5) => Math.round(value / step) * step
 
@@ -79,13 +79,67 @@ function averageMonthlyIncome(entries) {
 
 const tooltipMoney = (value) => formatKRW(value)
 
+function ProjectionEndpointLabel({ x, y, value, payload, index }) {
+  const pointX = Number(x)
+  const pointY = Number(y)
+  if (!value || !Number.isFinite(pointX) || !Number.isFinite(pointY)) return null
+
+  const isStart = payload?.projectionEndpoint === 'start' || index === 0
+  const title = isStart ? '시작' : '예상'
+  const valueText = String(value)
+  const textWidth = Array.from(valueText).reduce(
+    (sum, char) => sum + (/[\d.,+-]/.test(char) ? 6 : 12),
+    0
+  )
+  const boxWidth = Math.max(62, textWidth + 24)
+  const boxHeight = 42
+  const boxX = isStart ? pointX + 12 : pointX - boxWidth - 12
+  const showAbove = pointY > boxHeight + 24
+  const boxY = showAbove ? pointY - boxHeight - 14 : pointY + 14
+  const lineTargetY = showAbove ? boxY + boxHeight : boxY
+
+  return (
+    <g pointerEvents="none">
+      <line
+        x1={pointX}
+        y1={pointY}
+        x2={pointX}
+        y2={lineTargetY}
+        stroke="#7c3aed"
+        strokeWidth={1.5}
+        strokeDasharray="3 3"
+        opacity={0.58}
+      />
+      <circle cx={pointX} cy={pointY} r={5.5} fill="#fff" stroke="#7c3aed" strokeWidth={2.5} />
+      <circle cx={pointX} cy={pointY} r={2.5} fill="#7c3aed" />
+      <rect
+        x={boxX}
+        y={boxY}
+        width={boxWidth}
+        height={boxHeight}
+        rx={10}
+        fill="var(--surface)"
+        stroke="color-mix(in srgb, #7c3aed 30%, var(--border))"
+        filter="drop-shadow(0 6px 12px rgba(15, 23, 42, 0.16))"
+      />
+      <text x={boxX + 12} y={boxY + 15} fill="#7c3aed" fontSize={10} fontWeight={900}>
+        {title}
+      </text>
+      <text x={boxX + 12} y={boxY + 31} fill="var(--text)" fontSize={12} fontWeight={900}>
+        {valueText}
+      </text>
+    </g>
+  )
+}
+
 export default function SummaryStage({ entries, investments }) {
   const today = todayStr()
   const [pieType, setPieType] = useState('지출')
   const [year, setYear] = useState('all')
-  const [horizon, setHorizon] = useState(60)
+  const [horizonYears, setHorizonYears] = useState(DEFAULT_HORIZON_YEARS)
   const [investmentWeightOverride, setInvestmentWeightOverride] = useState(null)
   const [annualReturnOverride, setAnnualReturnOverride] = useState(null)
+  const [wageGrowth, setWageGrowth] = useState(0)
   const [monthlyIncomeInvestmentOverride, setMonthlyIncomeInvestmentOverride] = useState(0)
 
   const years = useMemo(() => {
@@ -139,22 +193,23 @@ export default function SummaryStage({ entries, investments }) {
   const monthlyIncome = useMemo(() => averageMonthlyIncome(entries), [entries])
   const projectionBase = Math.max(0, totals.netWorth)
   const scenarioInvestment = projectionBase * (investmentWeight / 100)
-  const scenarioCash = projectionBase - scenarioInvestment
   const monthlyInvestment = monthlyIncome * (monthlyIncomeInvestmentWeight / 100)
+  const horizonMonths = horizonYears * 12
   const projection = useMemo(
     () =>
-      projectAssets(investments, totals.cash, today, horizon, {
+      projectAssets(investments, totals.cash, today, horizonMonths, {
         scenario: {
           baseAmount: projectionBase,
           investmentWeight,
           annualReturn,
+          wageGrowth,
           monthlyIncome,
           monthlyIncomeInvestmentWeight,
         },
       }),
     [
       annualReturn,
-      horizon,
+      horizonMonths,
       investmentWeight,
       investments,
       monthlyIncome,
@@ -162,8 +217,21 @@ export default function SummaryStage({ entries, investments }) {
       projectionBase,
       today,
       totals.cash,
+      wageGrowth,
     ]
   )
+  const projectionChartData = useMemo(() => {
+    const lastIndex = projection.length - 1
+    return projection.map((point, index) => {
+      const projectionEndpoint =
+        index === 0 ? 'start' : index === lastIndex ? 'end' : ''
+      return {
+        ...point,
+        projectionEndpoint,
+        projectionEndpointLabel: projectionEndpoint ? compactKRW(point.투자) : '',
+      }
+    })
+  }, [projection])
 
   const pieData = useMemo(() => {
     if (pieType === '투자') {
@@ -217,21 +285,26 @@ export default function SummaryStage({ entries, investments }) {
             <div className="chart-head">
               <div>
                 <h3 className="future-title">미래 자산 추이</h3>
-                <p className="sub">
-                  현재 순자산을 투자비중과 예상 수익률로 나눠 보는 시나리오
-                </p>
               </div>
-              <div className="toggle">
-                {HORIZONS.map((h) => (
-                  <button
-                    key={h.months}
-                    className={horizon === h.months ? 'on' : ''}
-                    onClick={() => setHorizon(h.months)}
-                  >
-                    {h.label}
-                  </button>
-                ))}
-              </div>
+              <label className="projection-control projection-horizon-control">
+                <span className="projection-control-head">
+                  <span>기간</span>
+                  <strong>{horizonYears}년</strong>
+                </span>
+                <input
+                  type="range"
+                  min={MIN_HORIZON_YEARS}
+                  max={MAX_HORIZON_YEARS}
+                  step="1"
+                  value={horizonYears}
+                  aria-label="미래 자산 추이 기간"
+                  onChange={(e) =>
+                    setHorizonYears(
+                      clamp(Number(e.target.value), MIN_HORIZON_YEARS, MAX_HORIZON_YEARS)
+                    )
+                  }
+                />
+              </label>
             </div>
             <div className="projection-controls" aria-label="미래 자산 추이 조정">
               <label className="projection-control">
@@ -267,6 +340,25 @@ export default function SummaryStage({ entries, investments }) {
               </label>
               <label className="projection-control">
                 <span className="projection-control-head">
+                  <span>임금 상승률</span>
+                  <strong>
+                    {wageGrowth >= 0 ? '+' : ''}
+                    {wageGrowth}%
+                  </strong>
+                </span>
+                <input
+                  type="range"
+                  min={MIN_WAGE_GROWTH}
+                  max={MAX_WAGE_GROWTH}
+                  step="0.5"
+                  value={wageGrowth}
+                  onChange={(e) =>
+                    setWageGrowth(clamp(Number(e.target.value), MIN_WAGE_GROWTH, MAX_WAGE_GROWTH))
+                  }
+                />
+              </label>
+              <label className="projection-control">
+                <span className="projection-control-head">
                   <span>월수입 투자</span>
                   <strong>{monthlyIncomeInvestmentWeight}%</strong>
                 </span>
@@ -282,8 +374,11 @@ export default function SummaryStage({ entries, investments }) {
               <div className="projection-scenario-summary">
                 <span>기준 {formatKRW(projectionBase)}</span>
                 <span>투자 {formatKRW(scenarioInvestment)}</span>
-                <span>현금 {formatKRW(scenarioCash)}</span>
                 <span>월평균 수입 {formatKRW(monthlyIncome)}</span>
+                <span>
+                  임금 상승률 {wageGrowth >= 0 ? '+' : ''}
+                  {wageGrowth}%
+                </span>
                 <span>월 투자 {formatKRW(monthlyInvestment)}</span>
               </div>
             </div>
@@ -293,19 +388,23 @@ export default function SummaryStage({ entries, investments }) {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={320}>
-                <AreaChart data={projection} margin={{ top: 5, right: 14, bottom: 5, left: 0 }}>
+                <AreaChart data={projectionChartData} margin={{ top: 44, right: 22, bottom: 5, left: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" />
                   <XAxis
                     dataKey="month"
                     fontSize={12}
                     tickMargin={8}
-                    interval={Math.max(0, Math.floor(horizon / 12))}
+                    interval={Math.max(0, horizonYears)}
                   />
                   <YAxis tickFormatter={compactKRW} fontSize={12} width={54} />
                   <Tooltip formatter={tooltipMoney} />
                   <Legend />
-                  <Area type="monotone" dataKey="현금" stackId="a" stroke="#94a3b8" fill="#cbd5e1" />
-                  <Area type="monotone" dataKey="투자" stackId="a" stroke="#7c3aed" fill="#c4b5fd" />
+                  <Area type="monotone" dataKey="투자" stroke="#7c3aed" fill="#c4b5fd">
+                    <LabelList
+                      dataKey="projectionEndpointLabel"
+                      content={<ProjectionEndpointLabel />}
+                    />
+                  </Area>
                 </AreaChart>
               </ResponsiveContainer>
             )}

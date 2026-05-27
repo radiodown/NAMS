@@ -53,7 +53,7 @@ const TAB_COLOR = {
   '지출 관리': STAGE_META.지출.color,
   투자: INVEST_COLOR,
   모의투자: MOCK_INVEST_COLOR,
-  그래프요약: SUMMARY_COLOR,
+  그래프: SUMMARY_COLOR,
   연말정산: TAX_COLOR,
 }
 
@@ -382,7 +382,7 @@ export default function App() {
     }
     importBackupDocument(sample)
     setSettingsOpen(false)
-    setTab('그래프요약')
+    setTab('그래프')
   }
 
   useEffect(() => {
@@ -560,7 +560,7 @@ export default function App() {
             investments={invest.items}
             paymentMethods={paymentMethods.items}
           />
-        ) : tab === '그래프요약' ? (
+        ) : tab === '그래프' ? (
           <SummaryStage entries={entriesWithCurrentFixed} investments={invest.items} />
         ) : tab === '투자' ? (
           <InvestmentStage investments={invest} />
