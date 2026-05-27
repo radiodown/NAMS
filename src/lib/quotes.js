@@ -30,6 +30,7 @@ const STOCK_QUOTE_CACHE_MS = 1000 * 60
 const FX_QUOTE_CACHE_MS = 1000 * 60 * 60
 const FRANKFURTER_URL = 'https://api.frankfurter.dev/v1/latest'
 const UPBIT_TICKER_URL = 'https://api.upbit.com/v1/ticker'
+const UPBIT_CANDLES_DAYS_URL = 'https://api.upbit.com/v1/candles/days'
 const NAVER_ETF_PAGE_SIZE = 100
 const NAVER_ETF_MAX_PAGES = 15
 const quoteMemoryCache = new Map()
@@ -127,6 +128,15 @@ function naverEtfListUrl(page, pageSize = NAVER_ETF_PAGE_SIZE) {
 function upbitTickerUrl(market) {
   const params = new URLSearchParams({ markets: market })
   return `${UPBIT_TICKER_URL}?${params.toString()}`
+}
+
+function upbitCandlesDaysUrl(market, options = {}) {
+  const params = new URLSearchParams({
+    market,
+    count: String(options.count || 90),
+  })
+  if (options.to) params.set('to', options.to)
+  return `${UPBIT_CANDLES_DAYS_URL}?${params.toString()}`
 }
 
 function extractJson(text) {
@@ -319,6 +329,56 @@ function quoteFromUpbitTickerData(data) {
 
 async function fetchUpbitBitcoinQuote() {
   return quoteFromUpbitTickerData(await fetchJson(upbitTickerUrl('KRW-BTC')))
+}
+
+function historyCountForRange(range) {
+  if (range === '1mo') return 31
+  if (range === '1y') return 365
+  return 93
+}
+
+function historyFromUpbitCandles(data) {
+  const candles = Array.isArray(data) ? data : []
+  const byDate = new Map()
+
+  candles.forEach((item) => {
+    const date = String(item?.candle_date_time_kst || item?.candle_date_time_utc || '').slice(0, 10)
+    const price = Number(item?.trade_price)
+    if (date && Number.isFinite(price) && price > 0 && !byDate.has(date)) {
+      byDate.set(date, { date, price })
+    }
+  })
+
+  const points = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+  if (points.length === 0) throw new Error('비트코인 그래프 데이터를 찾을 수 없습니다.')
+
+  return {
+    symbol: 'BTC-KRW',
+    currency: 'KRW',
+    points,
+  }
+}
+
+async function fetchUpbitBitcoinHistory(options = {}) {
+  const targetCount = historyCountForRange(options.range || '3mo')
+  const candles = []
+  let to = ''
+
+  while (candles.length < targetCount) {
+    const batch = await fetchJson(
+      upbitCandlesDaysUrl('KRW-BTC', {
+        count: Math.min(200, targetCount - candles.length),
+        to,
+      })
+    )
+    if (!Array.isArray(batch) || batch.length === 0) break
+    candles.push(...batch)
+    const oldest = batch[batch.length - 1]?.candle_date_time_utc
+    if (!oldest) break
+    to = `${oldest}Z`
+  }
+
+  return historyFromUpbitCandles(candles)
 }
 
 function compactSearchText(value) {
@@ -650,6 +710,22 @@ export async function fetchStockHistory(input, options = {}) {
   const symbol = normalizeStockSymbol(input)
   if (!symbol) throw new Error('종목 코드가 없습니다.')
 
+  if (isBitcoinKrwSymbol(symbol)) {
+    try {
+      return await fetchUpbitBitcoinHistory(options)
+    } catch (upbitError) {
+      try {
+        return await fetchYahooHistory(symbol, options)
+      } catch {
+        throw upbitError
+      }
+    }
+  }
+
+  return fetchYahooHistory(symbol, options)
+}
+
+async function fetchYahooHistory(symbol, options = {}) {
   return historyFromYahooData(
     await fetchJson(
       yahooChartUrl(symbol, {

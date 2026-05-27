@@ -208,8 +208,46 @@ export function summarize(products, today) {
   return { cost, current, profit: current - cost, byKind }
 }
 
-// Monthly total-asset projection: cash held flat, 예금/적금 grow, 주식/비트코인/자산 held flat.
-export function projectAssets(products, cash, today, horizonMonths) {
+function projectedReturnMultiplier(returnPct, months) {
+  const annualRate = Math.max(-0.99, (Number(returnPct) || 0) / 100)
+  return Math.pow(1 + annualRate, Math.max(0, months) / 12)
+}
+
+// Monthly total-asset projection: cash held flat, 예금/적금 grow,
+// 주식 follows current return rate, 비트코인/자산 held flat.
+export function projectAssets(products, cash, today, horizonMonths, options = {}) {
+  if (options.scenario) {
+    const baseAmount = Math.max(0, Number(options.scenario.baseAmount) || 0)
+    const investmentWeight = Math.min(100, Math.max(0, Number(options.scenario.investmentWeight) || 0))
+    const annualReturn = Number(options.scenario.annualReturn) || 0
+    const monthlyIncome = Math.max(0, Number(options.scenario.monthlyIncome) || 0)
+    const monthlyIncomeInvestmentWeight = Math.min(
+      100,
+      Math.max(0, Number(options.scenario.monthlyIncomeInvestmentWeight) || 0)
+    )
+    const investmentBase = baseAmount * (investmentWeight / 100)
+    const cashBase = baseAmount - investmentBase
+    const monthlyInvestment = monthlyIncome * (monthlyIncomeInvestmentWeight / 100)
+    const monthlyCash = monthlyIncome - monthlyInvestment
+    const points = []
+
+    for (let t = 0; t <= horizonMonths; t++) {
+      const recurringInvestment = Array.from({ length: t }, (_, index) => index).reduce(
+        (sum, index) => sum + monthlyInvestment * projectedReturnMultiplier(annualReturn, t - index - 1),
+        0
+      )
+      const 투자 = investmentBase * projectedReturnMultiplier(annualReturn, t) + recurringInvestment
+      const 현금 = cashBase + monthlyCash * t
+      points.push({
+        month: addMonthLabel(today, t),
+        현금,
+        투자,
+        총자산: 현금 + 투자,
+      })
+    }
+    return points
+  }
+
   const rates = exchangeRateMap(products)
   const deposits = products
     .filter((p) => p.kind === '예금')
@@ -217,9 +255,9 @@ export function projectAssets(products, cash, today, horizonMonths) {
   const savings = products
     .filter((p) => p.kind === '적금')
     .map((p) => savingsMetrics(p, today))
-  const stockTotal = products
+  const stocks = products
     .filter((p) => p.kind === '주식')
-    .reduce((s, p) => s + stockMetrics(p, rates).current, 0)
+    .map((p) => stockMetrics(p, rates))
   const bitcoinTotal = products
     .filter((p) => p.kind === '비트코인')
     .reduce((s, p) => s + bitcoinMetrics(p).current, 0)
@@ -231,15 +269,19 @@ export function projectAssets(products, cash, today, horizonMonths) {
   for (let t = 0; t <= horizonMonths; t++) {
     const 예금 = deposits.reduce((s, d) => s + d.valueAt(d.elapsedRaw + t), 0)
     const 적금 = savings.reduce((s, d) => s + d.valueAtRound(d.round + t).value, 0)
+    const 주식 = stocks.reduce(
+      (s, stock) => s + stock.current * projectedReturnMultiplier(stock.returnPct, t),
+      0
+    )
     points.push({
       month: addMonthLabel(today, t),
       현금: cash,
       예금,
       적금,
-      주식: stockTotal,
+      주식,
       비트코인: bitcoinTotal,
       자산: assetTotal,
-      총자산: cash + 예금 + 적금 + stockTotal + bitcoinTotal + assetTotal,
+      총자산: cash + 예금 + 적금 + 주식 + bitcoinTotal + assetTotal,
     })
   }
   return points

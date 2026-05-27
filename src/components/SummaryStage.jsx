@@ -17,7 +17,7 @@ import {
   Legend,
 } from 'recharts'
 import { formatKRW, compactKRW, monthOf, todayStr } from '../lib/format'
-import { summarize, projectAssets } from '../lib/investments'
+import { exchangeRateMap, projectAssets, stockMetrics, summarize } from '../lib/investments'
 
 const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
@@ -30,6 +30,8 @@ const HORIZONS = [
   { label: '5년', months: 60 },
   { label: '10년', months: 120 },
 ]
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
+const roundToStep = (value, step = 0.5) => Math.round(value / step) * step
 
 function aggregateMonths(entries) {
   const map = {}
@@ -62,6 +64,19 @@ function categoryBreakdown(entries, type) {
     .sort((a, b) => b.value - a.value)
 }
 
+function averageMonthlyIncome(entries) {
+  const map = {}
+  for (const e of entries) {
+    if (e.type !== '수입') continue
+    const m = monthOf(e.date)
+    if (!m) continue
+    map[m] = (map[m] || 0) + e.amount
+  }
+  const values = Object.values(map).filter((amount) => amount > 0)
+  if (values.length === 0) return 0
+  return values.reduce((sum, amount) => sum + amount, 0) / values.length
+}
+
 const tooltipMoney = (value) => formatKRW(value)
 
 export default function SummaryStage({ entries, investments }) {
@@ -69,6 +84,9 @@ export default function SummaryStage({ entries, investments }) {
   const [pieType, setPieType] = useState('지출')
   const [year, setYear] = useState('all')
   const [horizon, setHorizon] = useState(60)
+  const [investmentWeightOverride, setInvestmentWeightOverride] = useState(null)
+  const [annualReturnOverride, setAnnualReturnOverride] = useState(null)
+  const [monthlyIncomeInvestmentOverride, setMonthlyIncomeInvestmentOverride] = useState(0)
 
   const years = useMemo(() => {
     const set = new Set()
@@ -102,9 +120,49 @@ export default function SummaryStage({ entries, investments }) {
     return { income, expense, cash, netWorth: cash + invest.current }
   }, [entries, invest])
 
+  const defaultInvestmentWeight = useMemo(
+    () => (totals.netWorth > 0 ? clamp(Math.round((invest.current / totals.netWorth) * 100), 0, 100) : 0),
+    [invest.current, totals.netWorth]
+  )
+  const defaultAnnualReturn = useMemo(() => {
+    const rates = exchangeRateMap(investments)
+    const stocks = investments.filter((p) => p.kind === '주식').map((p) => stockMetrics(p, rates))
+    const stockCurrent = stocks.reduce((sum, stock) => sum + stock.current, 0)
+    if (stockCurrent <= 0) return 5
+    const weightedReturn =
+      stocks.reduce((sum, stock) => sum + stock.returnPct * stock.current, 0) / stockCurrent
+    return clamp(roundToStep(weightedReturn), -30, 30)
+  }, [investments])
+  const investmentWeight = investmentWeightOverride ?? defaultInvestmentWeight
+  const annualReturn = annualReturnOverride ?? defaultAnnualReturn
+  const monthlyIncomeInvestmentWeight = monthlyIncomeInvestmentOverride
+  const monthlyIncome = useMemo(() => averageMonthlyIncome(entries), [entries])
+  const projectionBase = Math.max(0, totals.netWorth)
+  const scenarioInvestment = projectionBase * (investmentWeight / 100)
+  const scenarioCash = projectionBase - scenarioInvestment
+  const monthlyInvestment = monthlyIncome * (monthlyIncomeInvestmentWeight / 100)
   const projection = useMemo(
-    () => projectAssets(investments, totals.cash, today, horizon),
-    [investments, totals.cash, today, horizon]
+    () =>
+      projectAssets(investments, totals.cash, today, horizon, {
+        scenario: {
+          baseAmount: projectionBase,
+          investmentWeight,
+          annualReturn,
+          monthlyIncome,
+          monthlyIncomeInvestmentWeight,
+        },
+      }),
+    [
+      annualReturn,
+      horizon,
+      investmentWeight,
+      investments,
+      monthlyIncome,
+      monthlyIncomeInvestmentWeight,
+      projectionBase,
+      today,
+      totals.cash,
+    ]
   )
 
   const pieData = useMemo(() => {
@@ -160,7 +218,7 @@ export default function SummaryStage({ entries, investments }) {
               <div>
                 <h3 className="future-title">미래 자산 추이</h3>
                 <p className="sub">
-                  현금은 고정, 예금 · 적금은 이율로 증가, 주식 · 비트코인 · 자산은 현재가로 합산
+                  현재 순자산을 투자비중과 예상 수익률로 나눠 보는 시나리오
                 </p>
               </div>
               <div className="toggle">
@@ -175,9 +233,63 @@ export default function SummaryStage({ entries, investments }) {
                 ))}
               </div>
             </div>
-            {investments.length === 0 ? (
+            <div className="projection-controls" aria-label="미래 자산 추이 조정">
+              <label className="projection-control">
+                <span className="projection-control-head">
+                  <span>투자 비중</span>
+                  <strong>{investmentWeight}%</strong>
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={investmentWeight}
+                  onChange={(e) => setInvestmentWeightOverride(Number(e.target.value))}
+                />
+              </label>
+              <label className="projection-control">
+                <span className="projection-control-head">
+                  <span>연 수익률</span>
+                  <strong>
+                    {annualReturn >= 0 ? '+' : ''}
+                    {annualReturn}%
+                  </strong>
+                </span>
+                <input
+                  type="range"
+                  min="-30"
+                  max="30"
+                  step="0.5"
+                  value={annualReturn}
+                  onChange={(e) => setAnnualReturnOverride(Number(e.target.value))}
+                />
+              </label>
+              <label className="projection-control">
+                <span className="projection-control-head">
+                  <span>월수입 투자</span>
+                  <strong>{monthlyIncomeInvestmentWeight}%</strong>
+                </span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={monthlyIncomeInvestmentWeight}
+                  onChange={(e) => setMonthlyIncomeInvestmentOverride(Number(e.target.value))}
+                />
+              </label>
+              <div className="projection-scenario-summary">
+                <span>기준 {formatKRW(projectionBase)}</span>
+                <span>투자 {formatKRW(scenarioInvestment)}</span>
+                <span>현금 {formatKRW(scenarioCash)}</span>
+                <span>월평균 수입 {formatKRW(monthlyIncome)}</span>
+                <span>월 투자 {formatKRW(monthlyInvestment)}</span>
+              </div>
+            </div>
+            {projectionBase <= 0 ? (
               <div className="empty" style={{ padding: '48px 10px' }}>
-                투자 탭에서 예금 · 적금 · 주식 · 비트코인 · 자산을 추가하면 미래 자산 추이가 표시됩니다.
+                수입 · 지출 · 투자 데이터를 입력하면 미래 자산 추이가 표시됩니다.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={320}>
@@ -193,11 +305,7 @@ export default function SummaryStage({ entries, investments }) {
                   <Tooltip formatter={tooltipMoney} />
                   <Legend />
                   <Area type="monotone" dataKey="현금" stackId="a" stroke="#94a3b8" fill="#cbd5e1" />
-                  <Area type="monotone" dataKey="예금" stackId="a" stroke="#0891b2" fill="#67e8f9" />
-                  <Area type="monotone" dataKey="적금" stackId="a" stroke="#4f46e5" fill="#a5b4fc" />
-                  <Area type="monotone" dataKey="주식" stackId="a" stroke="#d97706" fill="#fcd34d" />
-                  <Area type="monotone" dataKey="비트코인" stackId="a" stroke="#f97316" fill="#fdba74" />
-                  <Area type="monotone" dataKey="자산" stackId="a" stroke="#0f766e" fill="#5eead4" />
+                  <Area type="monotone" dataKey="투자" stackId="a" stroke="#7c3aed" fill="#c4b5fd" />
                 </AreaChart>
               </ResponsiveContainer>
             )}

@@ -8,6 +8,7 @@ import {
   PieChart,
   ReferenceLine,
   ResponsiveContainer,
+  Sector,
   Tooltip,
   XAxis,
   YAxis,
@@ -58,6 +59,14 @@ const PORTFOLIO_BUCKETS = {
   safe: { id: 'safe', label: '안전자산', color: '#16a34a', desc: '예금, 적금, 현금성·채권 자산' },
   risk: { id: 'risk', label: '위험자산', color: '#dc2626', desc: '주식, 비트코인처럼 가격 변동이 큰 자산' },
   alt: { id: 'alt', label: '대체자산', color: '#d97706', desc: '금, 부동산, 기타 실물·대체 자산' },
+}
+const SAFE_ASSET_GROUPS = {
+  deposit: { id: 'deposit', label: '예금', color: '#16a34a' },
+  saving: { id: 'saving', label: '적금', color: '#0891b2' },
+  cash: { id: 'cash', label: '현금', color: '#2563eb' },
+  bond: { id: 'bond', label: '채권', color: '#0d9488' },
+  foreign: { id: 'foreign', label: '외화', color: '#0284c7' },
+  other: { id: 'other', label: '기타 안전자산', color: '#65a30d' },
 }
 const STALE_QUOTE_MS = 1000 * 60 * 60 * 72
 const QUOTE_REFRESH_MS = STOCK_QUOTE_REFRESH_MS
@@ -216,20 +225,6 @@ function needsQuoteRefresh(product) {
   return currency !== 'KRW' && !isQuoteFresh(product?.exchangeRateTime, FX_QUOTE_REFRESH_MS)
 }
 
-function groupedBy(positions, total, keyFn) {
-  const map = new Map()
-  positions.forEach((pos) => {
-    const key = keyFn(pos)
-    const prev = map.get(key) || { label: key, value: 0, count: 0 }
-    prev.value += pos.current
-    prev.count += 1
-    map.set(key, prev)
-  })
-  return [...map.values()]
-    .map((group) => ({ ...group, weight: total > 0 ? (group.value / total) * 100 : 0 }))
-    .sort((a, b) => b.value - a.value)
-}
-
 function portfolioBucketForProduct(product) {
   if (product?.kind === '주식' || product?.kind === '비트코인') return PORTFOLIO_BUCKETS.risk
   if (product?.kind === '예금' || product?.kind === '적금') return PORTFOLIO_BUCKETS.safe
@@ -239,6 +234,46 @@ function portfolioBucketForProduct(product) {
     return PORTFOLIO_BUCKETS.alt
   }
   return PORTFOLIO_BUCKETS.alt
+}
+
+function safeAssetGroupForProduct(product) {
+  if (product?.kind === '예금') return SAFE_ASSET_GROUPS.deposit
+  if (product?.kind === '적금') return SAFE_ASSET_GROUPS.saving
+
+  const type = String(product?.assetType || product?.name || '').toLowerCase()
+  if (/예금/.test(type)) return SAFE_ASSET_GROUPS.deposit
+  if (/적금/.test(type)) return SAFE_ASSET_GROUPS.saving
+  if (/현금|cash|파킹|입출금/.test(type)) return SAFE_ASSET_GROUPS.cash
+  if (/채권|bond/.test(type)) return SAFE_ASSET_GROUPS.bond
+  if (/외화|달러|usd|엔화|jpy|유로|eur/.test(type)) return SAFE_ASSET_GROUPS.foreign
+  return SAFE_ASSET_GROUPS.other
+}
+
+function buildSafeAssetPositions(items, total) {
+  const map = new Map()
+  ;(items || []).forEach((item) => {
+    const group = item.safeGroup || SAFE_ASSET_GROUPS.other
+    const prev =
+      map.get(group.id) || {
+        id: `safe-${group.id}`,
+        name: group.label,
+        color: group.color,
+        current: 0,
+        cost: 0,
+        profit: 0,
+        count: 0,
+        weight: 0,
+      }
+    prev.current += item.current
+    prev.cost += item.cost
+    prev.profit += item.profit
+    prev.count += 1
+    map.set(group.id, prev)
+  })
+
+  return [...map.values()]
+    .map((pos) => ({ ...pos, weight: total > 0 ? (pos.current / total) * 100 : 0 }))
+    .sort((a, b) => b.current - a.current)
 }
 
 function buildPortfolioAllocation(products, today, rates) {
@@ -252,10 +287,13 @@ function buildPortfolioAllocation(products, today, rates) {
         name: p.name || p.kind,
         kind: p.kind,
         current: metrics.current,
+        cost: metrics.cost,
+        profit: metrics.profit,
         bucket,
+        safeGroup: bucket.id === 'safe' ? safeAssetGroupForProduct(p) : null,
       }
     })
-    .filter((item) => item.current > 0)
+    .filter((item) => item.current > 0 || item.cost > 0)
 
   const total = items.reduce((sum, item) => sum + item.current, 0)
   const buckets = Object.values(PORTFOLIO_BUCKETS).map((bucket) => {
@@ -273,13 +311,23 @@ function buildPortfolioAllocation(products, today, rates) {
   const safeWeight = byId.safe?.weight || 0
   const riskWeight = byId.risk?.weight || 0
   const altWeight = byId.alt?.weight || 0
+  const summarizeItems = (list) => ({
+    current: list.reduce((sum, item) => sum + item.current, 0),
+    cost: list.reduce((sum, item) => sum + item.cost, 0),
+    profit: list.reduce((sum, item) => sum + item.profit, 0),
+    count: list.length,
+  })
+  const breakdown = {
+    safe: summarizeItems(items.filter((item) => item.bucket.id === 'safe')),
+    variable: summarizeItems(items.filter((item) => item.bucket.id !== 'safe')),
+  }
   const allocationLevel = riskWeight >= 70 ? 'high' : riskWeight >= 45 ? 'mid' : 'low'
   const summary =
     total > 0
       ? `전체 투자 포트폴리오는 안전자산 ${formatPct(safeWeight)}, 위험자산 ${formatPct(riskWeight)}, 대체자산 ${formatPct(altWeight)}로 구성되어 있습니다.`
       : '투자 포트폴리오 데이터가 없습니다.'
 
-  return { items, total, buckets, byId, safeWeight, riskWeight, altWeight, allocationLevel, summary }
+  return { items, total, buckets, byId, breakdown, safeWeight, riskWeight, altWeight, allocationLevel, summary }
 }
 
 function buildMarketReport(products, today) {
@@ -357,7 +405,6 @@ function buildMarketReport(products, today) {
   const fxLevel = fxWeight >= 50 ? 'high' : fxWeight >= 25 ? 'mid' : 'low'
   const lossLevel =
     lossWeight >= 50 || totalReturnPct <= -15 ? 'high' : lossWeight >= 25 || totalReturnPct < 0 ? 'mid' : 'low'
-  const dataLevel = missingFxCount || missingQuoteCount ? 'high' : staleQuoteCount ? 'mid' : 'low'
   const risks = [
     {
       name: '전체 배분',
@@ -391,12 +438,6 @@ function buildMarketReport(products, today) {
           : '손실 중인 자산이 없습니다.',
       ...riskLevel(lossLevel),
     },
-    {
-      name: '데이터 상태',
-      value: `${missingFxCount + missingQuoteCount + staleQuoteCount}건`,
-      detail: missingFxCount || missingQuoteCount ? '시세 또는 환율 보완이 필요합니다.' : '시세 데이터가 연결되어 있습니다.',
-      ...riskLevel(dataLevel),
-    },
   ]
   const highCount = risks.filter((risk) => risk.tone === 'high').length
   const midCount = risks.filter((risk) => risk.tone === 'mid').length
@@ -408,29 +449,59 @@ function buildMarketReport(products, today) {
         : { label: '양호', tone: 'low' }
   const best = positions.length ? [...positions].sort((a, b) => b.profit - a.profit)[0] : null
   const worst = positions.length ? [...positions].sort((a, b) => a.profit - b.profit)[0] : null
+  const assetBreakdown = allocation.breakdown
+  const safeTotal = allocation.byId.safe?.value || 0
+  const safePositions = buildSafeAssetPositions(allocation.byId.safe?.items || [], safeTotal)
+  const variableWeight = allocation.riskWeight + allocation.altWeight
+  const portfolioItems = [...allocation.items].sort((a, b) => b.current - a.current)
+  const topPortfolioAsset = portfolioItems[0] || null
+  const topPortfolioWeight =
+    allocation.total > 0 && topPortfolioAsset ? (topPortfolioAsset.current / allocation.total) * 100 : 0
   const notes = []
-  if (positions.length === 0) notes.push('주식·비트코인 같은 위험자산은 아직 등록되지 않았습니다.')
-  else if (positions.length < 3) notes.push('시장성 자산 수가 적어 분산 효과가 제한적입니다.')
-  if (topWeight >= 35) notes.push(`${positions[0]?.name || '상위 종목'} 비중이 ${formatPct(topWeight)}입니다.`)
+  if (assetBreakdown.safe.count === 0) {
+    notes.push('예금·적금·현금성 자산이 없어 변동성 완충 자산이 부족합니다.')
+  } else if (allocation.safeWeight >= 70) {
+    notes.push(`안전자산 비중이 ${formatPct(allocation.safeWeight)}로 높아 변동성은 낮지만 기대수익은 제한될 수 있습니다.`)
+  } else if (allocation.safeWeight >= 30 && variableWeight >= 30) {
+    notes.push('안전자산과 변동자산이 함께 있어 포트폴리오 완충 구조가 있습니다.')
+  }
+  if (assetBreakdown.variable.count === 0) {
+    notes.push('주식·비트코인·대체자산 같은 변동자산은 아직 등록되지 않았습니다.')
+  } else if (variableWeight >= 70) {
+    notes.push(`변동자산 비중이 ${formatPct(variableWeight)}로 높아 시장 변화에 민감합니다.`)
+  } else if (positions.length > 0 && positions.length < 3) {
+    notes.push('시장성 자산 수가 적어 변동자산 내부 분산 효과는 제한적입니다.')
+  }
+  if (topPortfolioWeight >= 35) notes.push(`${topPortfolioAsset?.name || '상위 자산'}이 전체의 ${formatPct(topPortfolioWeight)}입니다.`)
   if (fxWeight >= 25) notes.push(`외화 자산 비중이 ${formatPct(fxWeight)}입니다.`)
-  if (best) notes.push(`수익 기여 1위는 ${best.name}입니다.`)
-  if (worst && worst.profit < 0) notes.push(`손실 기여 1위는 ${worst.name}입니다.`)
-  if (notes.length === 0) notes.push('분산과 데이터 상태가 비교적 안정적입니다.')
+  if (best) notes.push(`변동자산 수익 기여 1위는 ${best.name}입니다.`)
+  if (worst && worst.profit < 0) notes.push(`변동자산 손실 기여 1위는 ${worst.name}입니다.`)
+  if (notes.length === 0) notes.push('분산이 비교적 안정적입니다.')
   const actions = []
-  if (topWeight >= 50) {
+  if (topPortfolioWeight >= 50) {
     actions.push({
       title: '단일 자산 집중',
-      detail: `${positions[0]?.name || '상위 자산'} 하나가 절반 이상입니다. 추가 매수 전 비중 조절을 먼저 보는 편이 좋습니다.`,
+      detail: `${topPortfolioAsset?.name || '상위 자산'} 하나가 전체 포트폴리오의 절반 이상입니다. 안전자산과 변동자산 전체 기준으로 비중 조절을 먼저 보세요.`,
     })
-  } else if (topWeight >= 35) {
+  } else if (topPortfolioWeight >= 35) {
     actions.push({
       title: '상위 비중 주의',
-      detail: `${positions[0]?.name || '상위 자산'} 비중이 높은 편입니다. 같은 방향으로 움직이는 자산이 더 있는지 확인하세요.`,
+      detail: `${topPortfolioAsset?.name || '상위 자산'} 비중이 높은 편입니다. 같은 방향으로 움직이는 자산과 현금성 완충 비중을 함께 확인하세요.`,
+    })
+  } else if (variableWeight >= 70) {
+    actions.push({
+      title: '변동성 완충 확인',
+      detail: `변동자산 비중이 ${formatPct(variableWeight)}입니다. 예금·적금·현금성 자산을 목표 비중으로 둘지 정하면 흔들림을 줄이기 좋습니다.`,
+    })
+  } else if (allocation.safeWeight >= 75) {
+    actions.push({
+      title: '수익 기회 점검',
+      detail: `안전자산 비중이 ${formatPct(allocation.safeWeight)}입니다. 장기 목표가 있다면 일부를 성장자산으로 배분할지 검토해볼 수 있습니다.`,
     })
   } else {
     actions.push({
-      title: '집중도 안정',
-      detail: '한 자산에 과하게 몰린 구조는 아닙니다. 신규 편입은 목표 비중을 기준으로 비교하기 좋습니다.',
+      title: '배분 균형 유지',
+      detail: '안전자산과 변동자산이 한쪽으로 크게 쏠리지는 않았습니다. 신규 편입은 목표 비중에서 부족한 쪽을 우선 비교하기 좋습니다.',
     })
   }
   if (fxWeight >= 25) {
@@ -441,13 +512,13 @@ function buildMarketReport(products, today) {
   }
   if (lossWeight >= 25 || totalReturnPct < 0) {
     actions.push({
-      title: '손실 구간 점검',
-      detail: `손실 자산 비중은 ${formatPct(lossWeight)}입니다. 물타기보다 보유 이유가 유지되는지 먼저 확인하세요.`,
+      title: '변동자산 손실 점검',
+      detail: `변동자산 안에서 손실 자산 비중은 ${formatPct(lossWeight)}입니다. 전체 자산 여력과 보유 이유를 함께 확인하세요.`,
     })
   } else if (best) {
     actions.push({
       title: '수익 기여 확인',
-      detail: `${best.name}이 현재 수익에 가장 크게 기여합니다. 비중이 과도해졌는지도 함께 보세요.`,
+      detail: `${best.name}이 변동자산 수익에 가장 크게 기여합니다. 전체 포트폴리오에서 비중이 과도해졌는지도 함께 보세요.`,
     })
   }
   if (missingFxCount || missingQuoteCount || staleQuoteCount) {
@@ -457,14 +528,6 @@ function buildMarketReport(products, today) {
     })
   }
 
-  const leaderText = positions[0] ? `${positions[0].name} ${formatPct(topWeight)}` : '상위 자산 없음'
-  const resultText =
-    totalProfit >= 0 ? `${formatKRW(totalProfit)} 평가이익` : `${formatKRW(Math.abs(totalProfit))} 평가손실`
-  const marketSummary =
-    positions.length > 0
-      ? `가격 변동 자산은 현재 ${resultText} 구간입니다. 가장 큰 비중은 ${leaderText}, 상위 3개 합산은 ${formatPct(top3Weight)}입니다. 수익권 ${winningCount}개, 손실권 ${losingCount}개로 구성되어 있습니다.`
-      : `${allocation.summary} 가격 변동 자산은 아직 등록되지 않았습니다.`
-
   return {
     positions,
     totalCurrent,
@@ -472,6 +535,9 @@ function buildMarketReport(products, today) {
     totalProfit,
     totalReturnPct,
     portfolioTotal: allocation.total,
+    assetBreakdown,
+    safePositions,
+    safeTotal,
     allocationBuckets: allocation.buckets,
     allocationSummary: allocation.summary,
     safeWeight: allocation.safeWeight,
@@ -481,13 +547,11 @@ function buildMarketReport(products, today) {
     lossCurrent,
     lossWeight,
     losingCount,
-    currencyGroups: groupedBy(positions, totalCurrent, (pos) => pos.currency),
-    marketGroups: groupedBy(positions, totalCurrent, (pos) => pos.market),
     risks,
     rating,
     notes,
     actions,
-    summary: marketSummary,
+    summary: '',
   }
 }
 
@@ -536,7 +600,7 @@ export default function InvestmentStage({ investments }) {
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
   const [quoteStatus, setQuoteStatus] = useState({})
-  const [activeStockId, setActiveStockId] = useState(null)
+  const [activeChartId, setActiveChartId] = useState(null)
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [stockSearch, setStockSearch] = useState({ state: 'idle', query: '', items: [], error: '' })
   const [stockSearchOpen, setStockSearchOpen] = useState(false)
@@ -578,11 +642,11 @@ export default function InvestmentStage({ investments }) {
   }, [items, rates, today])
 
   useEffect(() => {
-    if (!activeStockId) return
-    if (!items.some((p) => p.id === activeStockId && p.kind === '주식')) {
-      setActiveStockId(null)
+    if (!activeChartId) return
+    if (!items.some((p) => p.id === activeChartId && MARKET_ASSET_KINDS.has(p.kind))) {
+      setActiveChartId(null)
     }
-  }, [activeStockId, items])
+  }, [activeChartId, items])
 
   useEffect(() => {
     if (form.kind !== '주식') {
@@ -1066,13 +1130,13 @@ export default function InvestmentStage({ investments }) {
     if (window.confirm(`투자 상품 '${p.name}'을(를) 삭제할까요?`)) {
       removeItem(p.id)
       if (editingId === p.id) cancelEdit()
-      if (activeStockId === p.id) setActiveStockId(null)
+      if (activeChartId === p.id) setActiveChartId(null)
     }
   }
 
-  function toggleStockChart(p) {
-    if (p.kind !== '주식') return
-    setActiveStockId((id) => (id === p.id ? null : p.id))
+  function togglePriceChart(p) {
+    if (!MARKET_ASSET_KINDS.has(p.kind)) return
+    setActiveChartId((id) => (id === p.id ? null : p.id))
   }
 
   const draggingItem = draggingId ? items.find((it) => it.id === draggingId) || null : null
@@ -1232,11 +1296,17 @@ export default function InvestmentStage({ investments }) {
       <div className="stat-grid">
         <div className="stat-card">
           <div className="label">투자 원금 합계</div>
-          <div className="value">{formatKRW(totals.cost)}</div>
+          <div className="value">
+            {formatKRW(totals.cost)}
+            <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="cost" />
+          </div>
         </div>
         <div className="stat-card">
           <div className="label">현재 평가액</div>
-          <div className="value accent">{formatKRW(totals.current)}</div>
+          <div className="value accent">
+            {formatKRW(totals.current)}
+            <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="current" />
+          </div>
         </div>
         <div className="stat-card">
           <div className="label">평가손익</div>
@@ -1249,6 +1319,7 @@ export default function InvestmentStage({ investments }) {
                 {((totals.profit / totals.cost) * 100).toFixed(2)}%)
               </span>
             )}
+            <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="profit" signed />
           </div>
         </div>
         <RepresentativeFXCard />
@@ -1745,11 +1816,11 @@ export default function InvestmentStage({ investments }) {
                         today={today}
                         rates={rates}
                         editing={editingId === p.id}
-                        selected={activeStockId === p.id}
+                        selected={activeChartId === p.id}
                         dragging={draggingId === p.id}
                         dropTarget={dropId === p.id}
                         quoteStatus={quoteStatus[p.id]}
-                        onClick={() => toggleStockChart(p)}
+                        onClick={() => togglePriceChart(p)}
                         onEdit={() => startEdit(p)}
                         onRemove={() => handleRemove(p)}
                         onDragStart={(e) => handleDragStart(e, p)}
@@ -1759,8 +1830,8 @@ export default function InvestmentStage({ investments }) {
                         onDrop={(e) => handleDrop(e, p)}
                         onTouchStart={(e) => handleTouchStart(e, p)}
                       />
-                      {activeStockId === p.id && p.kind === '주식' && (
-                        <StockChartPanel product={p} onClose={() => setActiveStockId(null)} />
+                      {activeChartId === p.id && MARKET_ASSET_KINDS.has(p.kind) && (
+                        <StockChartPanel product={p} onClose={() => setActiveChartId(null)} />
                       )}
                     </Fragment>
                   ))}
@@ -1787,7 +1858,78 @@ export default function InvestmentStage({ investments }) {
   )
 }
 
+function ActivePieSlice(props) {
+  const {
+    cx,
+    cy,
+    innerRadius,
+    outerRadius,
+    startAngle,
+    endAngle,
+    fill,
+    stroke,
+    strokeWidth,
+  } = props
+
+  return (
+    <g className="invest-pie-active-slice">
+      <Sector
+        cx={cx}
+        cy={cy}
+        innerRadius={innerRadius}
+        outerRadius={outerRadius + 8}
+        startAngle={startAngle}
+        endAngle={endAngle}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+      />
+    </g>
+  )
+}
+
+function compactAssetAmount(value, { signed = false } = {}) {
+  const raw = Math.round(Number(value) || 0)
+  const abs = Math.abs(raw)
+  const sign = raw < 0 ? '-' : signed && raw > 0 ? '+' : ''
+  if (abs >= 100000000) {
+    const eok = Math.floor(abs / 100000000)
+    const man = Math.round((abs % 100000000) / 10000)
+    if (man >= 1000) {
+      const cheon = man / 1000
+      return `${sign}${eok}억${cheon.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}천`
+    }
+    return `${sign}${eok}억${man > 0 ? `${man.toLocaleString('ko-KR')}만` : ''}`
+  }
+  if (abs >= 10000000) {
+    return `${sign}${(abs / 10000000).toLocaleString('ko-KR', { maximumFractionDigits: 1 })}천`
+  }
+  if (abs >= 10000) return `${sign}${Math.round(abs / 10000).toLocaleString('ko-KR')}만`
+  return `${sign}${abs.toLocaleString('ko-KR')}`
+}
+
+function InvestStatBreakdown({ breakdown, field, signed = false }) {
+  const safe = breakdown?.safe?.[field] || 0
+  const variable = breakdown?.variable?.[field] || 0
+  const safeText = compactAssetAmount(safe, { signed })
+  const variableText = compactAssetAmount(variable, { signed })
+
+  return (
+    <span
+      className="invest-stat-breakdown"
+      title={`안전자산 ${signed ? signedKRW(safe) : formatKRW(safe)} / 변동자산 ${signed ? signedKRW(variable) : formatKRW(variable)}`}
+      aria-label={`안전자산 ${safeText}, 변동자산 ${variableText}`}
+    >
+      <b className="safe">{safeText}</b>
+      <i>/</i>
+      <b className={`risk${signed ? ` ${profitClass(variable)}` : ''}`}>{variableText}</b>
+    </span>
+  )
+}
+
 function InvestmentReport({ report }) {
+  const [activePie, setActivePie] = useState(null)
+
   if (report.portfolioTotal <= 0) {
     return (
       <section className="invest-report">
@@ -1799,7 +1941,14 @@ function InvestmentReport({ report }) {
     )
   }
 
-  const piePositions = report.positions.filter((pos) => pos.current > 0)
+  const safePiePositions = report.safePositions.filter((pos) => pos.current > 0)
+  const marketPiePositions = report.positions.filter((pos) => pos.current > 0)
+  const activePiePosition =
+    activePie?.group === 'safe'
+      ? safePiePositions[activePie.index]
+      : activePie?.group === 'market'
+        ? marketPiePositions[activePie.index]
+        : null
 
   return (
     <section className="invest-report">
@@ -1809,39 +1958,6 @@ function InvestmentReport({ report }) {
           <h3>투자 리포트</h3>
         </div>
         <span className={`invest-risk-pill ${report.rating.tone}`}>{report.rating.label}</span>
-      </div>
-
-      <div className="invest-report-stat-grid">
-        <div className="invest-report-stat">
-          <span>전체 투자액</span>
-          <strong>{formatKRW(report.portfolioTotal)}</strong>
-        </div>
-        <div className="invest-report-stat">
-          <span>시장성 평가액</span>
-          <strong>{formatKRW(report.totalCurrent)}</strong>
-        </div>
-        <div className="invest-report-stat">
-          <span>투입 원금</span>
-          <strong>{formatKRW(report.totalCost)}</strong>
-        </div>
-        <div className="invest-report-stat">
-          <span>평가손익</span>
-          <strong className={profitClass(report.totalProfit)}>{signedKRW(report.totalProfit)}</strong>
-        </div>
-        <div className="invest-report-stat">
-          <span>전체 수익률</span>
-          <strong className={profitClass(report.totalProfit)}>
-            {report.totalReturnPct >= 0 ? '+' : ''}
-            {report.totalReturnPct.toFixed(2)}%
-          </strong>
-        </div>
-        <div className="invest-report-stat">
-          <span>손실 자산</span>
-          <strong className={report.lossAmount > 0 ? 'profit-neg' : ''}>{formatKRW(report.lossCurrent)}</strong>
-          <small>
-            {report.losingCount}개 · {formatPct(report.lossWeight)} · 손실 {formatKRW(report.lossAmount)}
-          </small>
-        </div>
       </div>
 
       <div className="invest-report-grid">
@@ -1877,59 +1993,31 @@ function InvestmentReport({ report }) {
           </div>
         </div>
 
-        <div className="invest-report-card invest-report-card-wide">
+        <div className="invest-report-card invest-report-card-wide" onMouseLeave={() => setActivePie(null)}>
           <h4>자산 비중</h4>
-          <div className="invest-report-pie-wrap">
-            <div className="invest-report-pie-chart" aria-label="시장성 자산 비중 파이 차트">
-              {piePositions.length > 0 ? (
-                <>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={piePositions}
-                        dataKey="current"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius="48%"
-                        outerRadius="76%"
-                        paddingAngle={2}
-                        stroke="#fff"
-                        strokeWidth={2}
-                        label={({ percent }) => (percent >= 0.08 ? `${Math.round(percent * 100)}%` : '')}
-                        labelLine={false}
-                      >
-                        {piePositions.map((pos, index) => (
-                          <Cell key={pos.id} fill={pos.color || REPORT_COLORS[index % REPORT_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip content={<InvestPieTooltip />} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="invest-report-pie-center">
-                    <span>총 평가액</span>
-                    <strong>{compactKRW(report.totalCurrent)}</strong>
-                  </div>
-                </>
-              ) : (
-                <div className="invest-report-pie-empty">평가액이 입력되면 차트가 표시됩니다.</div>
-              )}
-            </div>
-            <div className="invest-report-pie-legend">
-              {report.positions.map((pos, index) => (
-                <div
-                  className={`invest-report-pie-chip${pos.profit < 0 ? ' loss' : ''}`}
-                  key={pos.id}
-                  style={{ '--chip': pos.color || REPORT_COLORS[index % REPORT_COLORS.length] }}
-                  title={`${pos.name} · ${pos.symbol || pos.market} · ${formatKRW(pos.current)} · ${formatPct(pos.weight)}`}
-                >
-                  <i />
-                  <span>{pos.name}</span>
-                  <strong>{formatPct(pos.weight, 0)}</strong>
-                </div>
-              ))}
-            </div>
+          <div className="invest-report-pie-grid">
+            <InvestmentPieBlock
+              title="예금 · 적금 · 현금"
+              ariaLabel="안전자산 비중 파이 차트"
+              centerLabel="안전자산"
+              positions={safePiePositions}
+              total={report.safeTotal}
+              activeIndex={activePie?.group === 'safe' ? activePie.index : null}
+              onActiveIndexChange={(index) => setActivePie({ group: 'safe', index })}
+              emptyText="예금, 적금, 현금성 자산이 입력되면 차트가 표시됩니다."
+            />
+            <InvestmentPieBlock
+              title="주식 · 비트코인"
+              ariaLabel="시장성 자산 비중 파이 차트"
+              centerLabel="시장성자산"
+              positions={marketPiePositions}
+              total={report.totalCurrent}
+              activeIndex={activePie?.group === 'market' ? activePie.index : null}
+              onActiveIndexChange={(index) => setActivePie({ group: 'market', index })}
+              emptyText="평가액이 입력되면 차트가 표시됩니다."
+            />
           </div>
+          <InvestmentPieHoverPanel position={activePiePosition} />
         </div>
 
         <div className="invest-report-card">
@@ -1948,9 +2036,9 @@ function InvestmentReport({ report }) {
           </div>
         </div>
 
-        <div className="invest-report-card">
+        <div className="invest-report-card invest-report-card-portfolio">
           <h4>포트폴리오 평가</h4>
-          <p className="invest-report-summary">{report.summary}</p>
+          {report.summary && <p className="invest-report-summary">{report.summary}</p>}
           <div className="invest-report-notes">
             {report.notes.map((note) => (
               <span key={note}>{note}</span>
@@ -1966,77 +2054,107 @@ function InvestmentReport({ report }) {
           </div>
         </div>
 
-        <div className="invest-report-card">
-          <h4>통화 · 시장</h4>
-          <div className="invest-report-mini-columns">
-            <div className="invest-report-bars compact">
-              {report.currencyGroups.map((group, index) => (
-                <ReportBar
-                  key={group.label}
-                  color={REPORT_COLORS[index % REPORT_COLORS.length]}
-                  label={group.label}
-                  meta={`${group.count}개`}
-                  value={formatPct(group.weight)}
-                  weight={group.weight}
-                />
-              ))}
-            </div>
-            <div className="invest-report-bars compact">
-              {report.marketGroups.map((group, index) => (
-                <ReportBar
-                  key={group.label}
-                  color={REPORT_COLORS[(index + 3) % REPORT_COLORS.length]}
-                  label={group.label}
-                  meta={`${group.count}개`}
-                  value={formatPct(group.weight)}
-                  weight={group.weight}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
       </div>
     </section>
   )
 }
 
-function InvestPieTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null
-  const pos = payload[0]?.payload
-  if (!pos) return null
+function InvestmentPieBlock({
+  title,
+  ariaLabel,
+  centerLabel,
+  positions,
+  total,
+  activeIndex,
+  onActiveIndexChange,
+  emptyText,
+}) {
   return (
-    <div className="invest-pie-tooltip">
-      <strong>{pos.name}</strong>
-      <span>{pos.symbol || pos.market}</span>
-      <dl>
-        <div>
-          <dt>비중</dt>
-          <dd>{formatPct(pos.weight)}</dd>
+    <div className="invest-report-pie-block">
+      <div className="invest-report-pie-block-head">
+        <strong>{title}</strong>
+        <span>{formatKRW(total)}</span>
+      </div>
+      <div className="invest-report-pie-wrap">
+        <div className="invest-report-pie-chart" aria-label={ariaLabel}>
+          {positions.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={positions}
+                    dataKey="current"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="48%"
+                    outerRadius="76%"
+                    paddingAngle={2}
+                    stroke="#fff"
+                    strokeWidth={2}
+                    label={({ percent }) => (percent >= 0.08 ? `${Math.round(percent * 100)}%` : '')}
+                    labelLine={false}
+                    activeIndex={activeIndex ?? undefined}
+                    activeShape={ActivePieSlice}
+                    onMouseEnter={(_, index) => onActiveIndexChange(index)}
+                    rootTabIndex={-1}
+                  >
+                    {positions.map((pos, index) => (
+                      <Cell
+                        key={pos.id}
+                        fill={pos.color || REPORT_COLORS[index % REPORT_COLORS.length]}
+                        focusable="false"
+                      />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="invest-report-pie-center">
+                <span>{centerLabel}</span>
+                <strong>{compactKRW(total)}</strong>
+              </div>
+            </>
+          ) : (
+            <div className="invest-report-pie-empty">{emptyText}</div>
+          )}
         </div>
-        <div>
-          <dt>평가액</dt>
-          <dd>{formatKRW(pos.current)}</dd>
-        </div>
-        <div>
-          <dt>손익</dt>
-          <dd className={profitClass(pos.profit)}>{signedKRW(pos.profit)}</dd>
-        </div>
-      </dl>
+      </div>
     </div>
   )
 }
 
-function ReportBar({ color, label, meta, value, weight }) {
+function InvestmentPieHoverPanel({ position }) {
   return (
-    <div className="invest-report-bar" style={{ '--bar': color }}>
-      <div className="invest-report-bar-head">
-        <span>{label}</span>
-        <strong>{value}</strong>
-      </div>
-      <div className="invest-report-bar-track">
-        <i style={{ width: `${Math.max(2, Math.min(100, weight))}%` }} />
-      </div>
-      <div className="invest-report-bar-meta">{meta}</div>
+    <div className={`invest-report-pie-hover invest-report-pie-hover-common${position ? ' active' : ''}`}>
+      {position ? (
+        <>
+          <div className="invest-report-pie-hover-head">
+            <i style={{ background: position.color }} />
+            <strong>{position.name}</strong>
+            <span>{formatPct(position.weight)}</span>
+          </div>
+          <dl>
+            <div>
+              <dt>평가액</dt>
+              <dd>{formatKRW(position.current)}</dd>
+            </div>
+            {position.count != null && (
+              <div>
+                <dt>항목</dt>
+                <dd>{position.count}개</dd>
+              </div>
+            )}
+            <div>
+              <dt>손익</dt>
+              <dd className={profitClass(position.profit)}>
+                {signedKRW(position.profit)}
+              </dd>
+            </div>
+          </dl>
+        </>
+      ) : (
+        <span>파이 조각에 커서를 올리면 상세 비중이 표시됩니다.</span>
+      )}
     </div>
   )
 }
@@ -2069,7 +2187,7 @@ function ProductCard({
   let kindDetail = ''
   let profitText = `수익 ${signedKRW(m.profit)}`
   let valueText = formatKRW(m.current)
-  const clickable = p.kind === '주식'
+  const clickable = MARKET_ASSET_KINDS.has(p.kind)
 
   if (p.kind === '예금') {
     kindDetail = `예금 · ${m.elapsed}/${m.months}개월`
@@ -2098,7 +2216,7 @@ function ProductCard({
 
   return (
     <div
-      className={`invest-card${clickable ? ' stock-clickable' : ''}${editing ? ' editing' : ''}${
+      className={`invest-card${clickable ? ' chart-clickable' : ''}${editing ? ' editing' : ''}${
         selected ? ' selected' : ''
       }${dragging ? ' dragging' : ''}${
         dropTarget ? ' drop-target' : ''
@@ -2108,7 +2226,7 @@ function ProductCard({
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
       aria-expanded={clickable ? selected : undefined}
-      aria-label={clickable ? `${p.name} 주식 그래프 ${selected ? '닫기' : '보기'}` : undefined}
+      aria-label={clickable ? `${p.name} 시세 그래프 ${selected ? '닫기' : '보기'}` : undefined}
       draggable
       onClick={clickable ? onClick : undefined}
       onKeyDown={(e) => {
@@ -2173,11 +2291,13 @@ function ProductCard({
 
 function StockChartPanel({ product: p, onClose }) {
   const [range, setRange] = useState(STOCK_CHART_RANGES[1].value)
+  const chartSymbol = p.kind === '비트코인' ? BITCOIN_SYMBOL : p.quoteSymbol || p.symbol || ''
+  const chartCurrency = p.kind === '비트코인' ? 'KRW' : p.quoteCurrency || p.currency || 'KRW'
   const [chart, setChart] = useState({
     state: 'loading',
     points: [],
-    currency: p.quoteCurrency || p.currency || 'KRW',
-    symbol: p.quoteSymbol || p.symbol || '',
+    currency: chartCurrency,
+    symbol: chartSymbol,
     error: '',
   })
   const activeRange =
@@ -2185,7 +2305,7 @@ function StockChartPanel({ product: p, onClose }) {
   const color = p.color || INVEST_META[p.kind].color
 
   useEffect(() => {
-    const symbol = p.quoteSymbol || p.symbol
+    const symbol = chartSymbol
     if (!symbol) {
       setChart((prev) => ({
         ...prev,
@@ -2204,7 +2324,7 @@ function StockChartPanel({ product: p, onClose }) {
         setChart({
           state: 'ok',
           points: history.points,
-          currency: normalizeCurrencyCode(history.currency || p.quoteCurrency || p.currency, 'KRW'),
+          currency: normalizeCurrencyCode(history.currency || chartCurrency, 'KRW'),
           symbol: history.symbol || symbol,
           error: '',
         })
@@ -2222,10 +2342,10 @@ function StockChartPanel({ product: p, onClose }) {
     return () => {
       cancelled = true
     }
-  }, [activeRange, p.currency, p.quoteCurrency, p.quoteSymbol, p.symbol])
+  }, [activeRange, chartCurrency, chartSymbol])
 
   const points = chart.points
-  const currency = chart.currency || p.quoteCurrency || p.currency || 'KRW'
+  const currency = chart.currency || chartCurrency
   const first = points[0]?.price || 0
   const last = points[points.length - 1]?.price || 0
   const change = first > 0 && last > 0 ? last - first : 0
@@ -2236,7 +2356,7 @@ function StockChartPanel({ product: p, onClose }) {
     <div className="invest-stock-chart-card" style={{ '--accent': color }}>
       <div className="invest-stock-chart-head">
         <div>
-          <div className="invest-stock-chart-kicker">{chart.symbol || p.quoteSymbol || '주식'}</div>
+          <div className="invest-stock-chart-kicker">{chart.symbol || chartSymbol || p.kind}</div>
           <h3>{p.name} 현재가 추이</h3>
           <p className={`invest-stock-chart-change ${profitClass(change)}`}>
             {last > 0 ? formatCurrency(last, currency) : '조회중'}
