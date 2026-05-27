@@ -180,6 +180,7 @@ export function buildSampleDocument(today = todayStr()) {
       extraInsurance: 960000,
       monthlyRent: 650000,
       prepaidTax: 5200000,
+      marriageCredit: false,
     },
   }
 

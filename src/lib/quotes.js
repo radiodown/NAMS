@@ -98,6 +98,16 @@ function naverEtfListUrl(page, pageSize = NAVER_ETF_PAGE_SIZE) {
   return readerUrl(`http://m.stock.naver.com/api/stocks/etf?page=${page}&pageSize=${pageSize}`)
 }
 
+function naverSearchAutoCompleteUrl(query) {
+  const params = new URLSearchParams({
+    query: String(query || '').trim(),
+    target: 'stock',
+  })
+  const path = `/front-api/search/autoComplete?${params.toString()}`
+  if (typeof window === 'undefined') return `https://m.stock.naver.com${path}`
+  return readerUrl(`http://m.stock.naver.com${path}`)
+}
+
 function upbitTickerUrl(market) {
   const params = new URLSearchParams({ markets: market })
   return `${UPBIT_TICKER_URL}?${params.toString()}`
@@ -490,6 +500,44 @@ function normalizeNaverEtfItem(item) {
   })
 }
 
+function naverSearchCurrency(item) {
+  const nation = String(item?.nationCode || '').toUpperCase()
+  if (nation === 'KOR') return 'KRW'
+  if (nation === 'USA') return 'USD'
+  if (nation === 'JPN') return 'JPY'
+  if (nation === 'CHN') return 'CNY'
+  if (nation === 'HKG') return 'HKD'
+  return guessStockCurrency(item?.code || item?.reutersCode, item?.typeCode || item?.typeName)
+}
+
+function normalizeNaverSearchSymbol(item) {
+  const code = String(item?.code || '').trim().toUpperCase()
+  const reutersCode = String(item?.reutersCode || '').trim().toUpperCase()
+  const exchange = String(item?.typeCode || '').trim().toUpperCase()
+  const nation = String(item?.nationCode || '').trim().toUpperCase()
+  if (/^\d{6}$/.test(code) && nation === 'KOR') {
+    return `${code}.${exchange === 'KOSDAQ' ? 'KQ' : 'KS'}`
+  }
+  if (nation === 'USA' && /^[A-Z][A-Z0-9.-]{0,9}$/.test(code)) {
+    return code.replace('.', '-')
+  }
+  if (exchange === 'TOKYO' && code) return `${code}.T`
+  return normalizeStockSymbol(code || reutersCode)
+}
+
+function normalizeNaverSearchItem(item) {
+  const symbol = normalizeNaverSearchSymbol(item)
+  if (!symbol) return null
+  const category = String(item?.category || '').toUpperCase()
+  return normalizeSearchItem({
+    symbol,
+    name: item?.name,
+    exchange: item?.typeName || item?.typeCode,
+    quoteType: category.includes('ETF') ? 'ETF' : 'EQUITY',
+    currency: naverSearchCurrency(item),
+  })
+}
+
 let naverEtfListPromise = null
 
 async function fetchNaverEtfList() {
@@ -555,6 +603,15 @@ async function naverEtfSearch(query, options = {}) {
     .map(({ score, ...item }) => item)
 }
 
+async function naverAutoCompleteSearch(query, options = {}) {
+  const limit = options.limit || 8
+  const data = await fetchJson(naverSearchAutoCompleteUrl(query))
+  return (data?.result?.items || [])
+    .map(normalizeNaverSearchItem)
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
 async function yahooStockSearch(query, options = {}) {
   const data = await fetchJson(yahooSearchUrl(yahooSearchQuery(query), options))
   return (data?.quotes || [])
@@ -567,15 +624,19 @@ export async function fetchStockSearch(input, options = {}) {
   const query = String(input || '').trim()
   if (query.length < 2) return []
 
-  const local = localStockSearch(query)
-  const naverEtfs = await naverEtfSearch(query, { limit: options.limit || 8 }).catch(() => [])
+  const limit = options.limit || 8
+  const local = localStockSearch(query).slice(0, limit)
+  if (options.localOnly) return local
+
+  const naverAuto = await naverAutoCompleteSearch(query, { limit }).catch(() => [])
+  const naverEtfs = await naverEtfSearch(query, { limit }).catch(() => [])
   const remote =
-    hasKorean(query) && (local.length > 0 || naverEtfs.length > 0)
+    hasKorean(query) && (local.length > 0 || naverAuto.length > 0 || naverEtfs.length > 0)
       ? []
-      : await yahooStockSearch(query, { limit: options.limit || 8 }).catch(() => [])
+      : await yahooStockSearch(query, { limit }).catch(() => [])
 
   const map = new Map()
-  ;[...local, ...naverEtfs, ...remote].forEach((item) => {
+  ;[...local, ...naverAuto, ...naverEtfs, ...remote].forEach((item) => {
     const prev = map.get(item.symbol)
     if (!prev) {
       map.set(item.symbol, item)
@@ -589,7 +650,7 @@ export async function fetchStockSearch(input, options = {}) {
       currentPrice: prev.currentPrice || item.currentPrice,
     })
   })
-  return [...map.values()].slice(0, options.limit || 8)
+  return [...map.values()].slice(0, limit)
 }
 
 function historyFromYahooData(data, fallbackSymbol) {

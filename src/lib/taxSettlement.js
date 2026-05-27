@@ -10,6 +10,14 @@
 import { TAX_CATEGORY_BUCKET, TAX_CATEGORY_KEYWORDS } from './categories'
 import { formatKRW } from './format'
 
+const EARNED_INCOME_DEDUCTION_CAP = 20_000_000
+const CARD_CULTURE_SALARY_LIMIT = 70_000_000
+const HOUSING_SAVING_LIMIT = 3_000_000
+const MONTHLY_RENT_ANNUAL_LIMIT = 10_000_000
+const STANDARD_TAX_CREDIT = 130_000
+const MARRIAGE_CREDIT_START_YEAR = 2024
+const MARRIAGE_CREDIT_END_YEAR = 2026
+
 // ---------- 세율표 ----------------------------------------------------------
 const INCOME_TAX_BRACKETS = [
   { ceil: 14_000_000, rate: 0.06, base: 0, accum: 0 },
@@ -43,11 +51,13 @@ export function bracketLabel(taxableIncome) {
 // ---------- 근로소득공제 ----------------------------------------------------
 export function calcEarnedIncomeDeduction(salary) {
   const s = Math.max(0, salary)
-  if (s <= 5_000_000) return Math.round(s * 0.7)
-  if (s <= 15_000_000) return Math.round(3_500_000 + (s - 5_000_000) * 0.4)
-  if (s <= 45_000_000) return Math.round(7_500_000 + (s - 15_000_000) * 0.15)
-  if (s <= 100_000_000) return Math.round(12_000_000 + (s - 45_000_000) * 0.05)
-  return Math.round(14_750_000 + (s - 100_000_000) * 0.02)
+  let deduction = 0
+  if (s <= 5_000_000) deduction = s * 0.7
+  else if (s <= 15_000_000) deduction = 3_500_000 + (s - 5_000_000) * 0.4
+  else if (s <= 45_000_000) deduction = 7_500_000 + (s - 15_000_000) * 0.15
+  else if (s <= 100_000_000) deduction = 12_000_000 + (s - 45_000_000) * 0.05
+  else deduction = 14_750_000 + (s - 100_000_000) * 0.02
+  return Math.round(Math.min(s, deduction, EARNED_INCOME_DEDUCTION_CAP))
 }
 
 // ---------- 근로소득세액공제 한도 ------------------------------------------
@@ -55,12 +65,15 @@ function calcEarnedIncomeTaxCredit(calcTax, salary) {
   const credit = calcTax <= 1_300_000
     ? Math.round(calcTax * 0.55)
     : Math.round(715_000 + (calcTax - 1_300_000) * 0.30)
-  const cap = salary <= 33_000_000
-    ? 740_000
-    : salary <= 70_000_000
-      ? 660_000
-      : 500_000
-  return Math.min(Math.max(credit, 0), cap)
+  let cap = 740_000
+  if (salary > 120_000_000) {
+    cap = Math.max(200_000, 500_000 - (salary - 120_000_000) * 0.5)
+  } else if (salary > 70_000_000) {
+    cap = Math.max(500_000, 660_000 - (salary - 70_000_000) * 0.5)
+  } else if (salary > 33_000_000) {
+    cap = Math.max(660_000, 740_000 - (salary - 33_000_000) * 0.008)
+  }
+  return Math.min(Math.max(credit, 0), Math.round(cap))
 }
 
 // ---------- 카테고리 → 공제 버킷 매칭 --------------------------------------
@@ -76,38 +89,82 @@ function matchTaxBucket(category) {
 }
 
 // ---------- 카드 사용액 분류 ------------------------------------------------
-export function categorizeCardSpending(entries, paymentMethods, year) {
+function cardPaymentBucket(kind) {
+  const value = String(kind || '').trim()
+  if (!value) return null
+  if (value === '신용카드' || value === '카드' || value.includes('신용')) return '신용카드'
+  if (
+    value === '체크카드' ||
+    value === '현금' ||
+    value.includes('체크') ||
+    value.includes('직불') ||
+    value.includes('선불') ||
+    value.includes('현금영수증') ||
+    value.includes('제로페이')
+  ) {
+    return '체크카드현금'
+  }
+  return null
+}
+
+export function categorizeCardSpending(entries, paymentMethods, year, salary = 0) {
   const methodKind = new Map((paymentMethods || []).map((m) => [m.id, m.kind]))
   const result = {
     신용카드: 0,
-    체크카드현금: 0, // 체크카드 + 현금영수증 + 간편결제 + 계좌
+    체크카드현금: 0, // 체크카드 + 현금영수증
     전통시장: 0,
     대중교통: 0,
     도서공연: 0,
     total: 0,
+    excluded: 0,
   }
   ;(entries || []).forEach((e) => {
     if (e.type !== '지출') return
     if ((e.date || '').slice(0, 4) !== String(year)) return
     const amount = Number(e.amount) || 0
     if (amount <= 0) return
-    result.total += amount
 
     const bucket = matchTaxBucket(e.category)
+    const kind = methodKind.get(e.paymentMethodId) || e.paymentMethod || ''
+    const paymentBucket = cardPaymentBucket(kind)
+    if (!paymentBucket) {
+      result.excluded += amount
+      return
+    }
+
+    result.total += amount
     if (bucket === '전통시장') result.전통시장 += amount
     else if (bucket === '대중교통') result.대중교통 += amount
-    else if (bucket === '도서공연') result.도서공연 += amount
-
-    const kind = methodKind.get(e.paymentMethodId) || e.paymentMethod || ''
-    if (kind === '신용카드') result.신용카드 += amount
-    else result.체크카드현금 += amount
+    else if (bucket === '도서공연' && salary <= CARD_CULTURE_SALARY_LIMIT) {
+      result.도서공연 += amount
+    } else {
+      result[paymentBucket] += amount
+    }
   })
   return result
 }
 
 function cardDeductionCap(salary) {
-  const regular = salary <= 70_000_000 ? 3_000_000 : salary <= 120_000_000 ? 2_500_000 : 2_000_000
-  return { regular, extra: 3_000_000, total: regular + 3_000_000 }
+  const regular = salary <= 70_000_000 ? 3_000_000 : 2_500_000
+  const extra = salary <= 70_000_000 ? 3_000_000 : 2_000_000
+  return { regular, extra, total: regular + extra }
+}
+
+function capBreakdown(raw, total) {
+  const entries = Object.entries(raw)
+  const rawTotal = entries.reduce((sum, [, value]) => sum + value, 0)
+  const empty = Object.fromEntries(entries.map(([key]) => [key, 0]))
+  if (rawTotal <= 0 || total <= 0) return empty
+
+  const scaled = Object.fromEntries(
+    entries.map(([key, value]) => [key, Math.round((value / rawTotal) * total)])
+  )
+  const diff = Math.round(total) - Object.values(scaled).reduce((sum, value) => sum + value, 0)
+  if (diff !== 0) {
+    const [largestKey] = entries.reduce((max, item) => (item[1] > max[1] ? item : max), entries[0])
+    scaled[largestKey] += diff
+  }
+  return scaled
 }
 
 // 25% 임계선까지는 신용카드 사용액부터 소진, 나머지에 공제율을 적용한다.
@@ -134,29 +191,36 @@ export function calcCardDeduction(spending, salary) {
   const eligible = {
     신용카드: consume(spending.신용카드),
     체크카드현금: consume(spending.체크카드현금),
+    도서공연: consume(spending.도서공연),
     전통시장: consume(spending.전통시장),
     대중교통: consume(spending.대중교통),
-    도서공연: consume(spending.도서공연),
   }
-  const regular = eligible.신용카드 * 0.15 + eligible.체크카드현금 * 0.30
-  const special =
-    eligible.전통시장 * 0.40 + eligible.대중교통 * 0.40 + eligible.도서공연 * 0.30
+  const rawBreakdown = {
+    신용카드: eligible.신용카드 * 0.15,
+    체크카드현금: eligible.체크카드현금 * 0.30,
+    전통시장: eligible.전통시장 * 0.40,
+    대중교통: eligible.대중교통 * 0.40,
+    도서공연: eligible.도서공연 * 0.30,
+  }
+  const regular = rawBreakdown.신용카드 + rawBreakdown.체크카드현금
+  const special = rawBreakdown.전통시장 + rawBreakdown.대중교통 + rawBreakdown.도서공연
+  const rawTotal = regular + special
 
-  const regularDeduction = Math.min(regular, cap.regular)
-  const specialDeduction = Math.min(special, cap.extra)
+  const regularDeduction = Math.min(rawTotal, cap.regular)
+  const specialDeduction = Math.min(
+    Math.max(0, rawTotal - cap.regular),
+    special,
+    cap.extra
+  )
+  const total = Math.round(regularDeduction + specialDeduction)
   return {
     threshold,
     excess: spending.total - threshold,
     regularDeduction: Math.round(regularDeduction),
     specialDeduction: Math.round(specialDeduction),
-    total: Math.round(regularDeduction + specialDeduction),
-    breakdown: {
-      신용카드: Math.round(eligible.신용카드 * 0.15),
-      체크카드현금: Math.round(eligible.체크카드현금 * 0.30),
-      전통시장: Math.round(eligible.전통시장 * 0.40),
-      대중교통: Math.round(eligible.대중교통 * 0.40),
-      도서공연: Math.round(eligible.도서공연 * 0.30),
-    },
+    total,
+    rawTotal: Math.round(rawTotal),
+    breakdown: capBreakdown(rawBreakdown, total),
     cap,
   }
 }
@@ -176,9 +240,9 @@ export function aggregateDeductibleCategories(entries, year) {
 // ---------- 세제혜택 상품 ---------------------------------------------------
 export const PRODUCT_LIMITS = {
   ISA: { contribution: 20_000_000, label: '연 2,000만원 한도 · 만기시 200~400만원 비과세' },
-  연금저축: { contribution: 6_000_000, label: '연 600만원 한도 · 13.2~16.5% 세액공제' },
+  연금저축: { contribution: 6_000_000, label: '연 600만원 한도 · 12~15% 세액공제' },
   IRP: { contribution: 9_000_000, label: '연금저축 합산 900만원 한도' },
-  주택청약: { contribution: 2_400_000, label: '연 240만원 한도 · 40% 소득공제 (무주택·총급여 7천 이하)' },
+  주택청약: { contribution: HOUSING_SAVING_LIMIT, label: '연 300만원 한도 · 40% 소득공제 (무주택·총급여 7천 이하)' },
   청년도약계좌: { contribution: 8_400_000, label: '연 840만원 한도 · 정부 기여금 + 비과세' },
 }
 
@@ -250,7 +314,7 @@ function calcRentCredit(monthlyRent, salary, isHomeless) {
   if (!isHomeless || monthlyRent <= 0 || salary > 80_000_000) {
     return { eligible: 0, rate: 0, credit: 0 }
   }
-  const annual = Math.min(monthlyRent * 12, 7_500_000)
+  const annual = Math.min(monthlyRent * 12, MONTHLY_RENT_ANNUAL_LIMIT)
   const rate = salary <= 55_000_000 ? 0.17 : 0.15
   return { eligible: annual, rate, credit: Math.round(annual * rate) }
 }
@@ -258,13 +322,34 @@ function calcRentCredit(monthlyRent, salary, isHomeless) {
 function calcPensionCredit(pensionContribution, irpContribution, salary) {
   const pension = Math.min(pensionContribution, 6_000_000)
   const total = Math.min(pension + irpContribution, 9_000_000)
-  const rate = salary <= 55_000_000 ? 0.165 : 0.132
+  const rate = salary <= 55_000_000 ? 0.15 : 0.12
   return { eligible: total, rate, credit: Math.round(total * rate) }
 }
 
-function calcChildrenCredit(children) {
+export function childCreditAgeThreshold(year) {
+  const y = Number(year) || new Date().getFullYear()
+  if (y <= 2025) return 8
+  if (y === 2026) return 9
+  if (y === 2027) return 10
+  if (y === 2028) return 11
+  if (y === 2029) return 12
+  return 13
+}
+
+function calcChildrenCredit(children, year) {
+  const y = Number(year) || new Date().getFullYear()
   const n = Math.max(0, Math.round(children || 0))
   if (n === 0) return 0
+  if (y >= 2025) {
+    if (n === 1) return 250_000
+    if (n === 2) return 550_000
+    return 550_000 + (n - 2) * 400_000
+  }
+  if (y <= 2023) {
+    if (n === 1) return 150_000
+    if (n === 2) return 300_000
+    return 300_000 + (n - 2) * 300_000
+  }
   if (n === 1) return 150_000
   if (n === 2) return 350_000
   return 350_000 + (n - 2) * 300_000
@@ -272,7 +357,23 @@ function calcChildrenCredit(children) {
 
 function calcHousingSavingDeduction(contribution, salary, isHomeless) {
   if (!isHomeless || salary > 70_000_000) return 0
-  return Math.round(Math.min(contribution, 2_400_000) * 0.4)
+  return Math.round(Math.min(contribution, HOUSING_SAVING_LIMIT) * 0.4)
+}
+
+function calcStandardTaxCredit({ medical, education, insurance, donation, rent }) {
+  const hasSpecialCredit =
+    medical.credit > 0 ||
+    education.credit > 0 ||
+    insurance.credit > 0 ||
+    donation.credit > 0 ||
+    rent.credit > 0
+  return hasSpecialCredit ? 0 : STANDARD_TAX_CREDIT
+}
+
+function calcMarriageCredit(enabled, year) {
+  const y = Number(year) || 0
+  if (!enabled || y < MARRIAGE_CREDIT_START_YEAR || y > MARRIAGE_CREDIT_END_YEAR) return 0
+  return 500_000
 }
 
 // ---------- 메인 계산 -------------------------------------------------------
@@ -301,7 +402,7 @@ export function computeTaxSettlement({ entries, investments, paymentMethods, set
 
   const personalDeduction = 1_500_000 * (1 + (settings?.dependents || 0))
 
-  const cardSpending = categorizeCardSpending(entries, paymentMethods, year)
+  const cardSpending = categorizeCardSpending(entries, paymentMethods, year, totalSalary)
   const cardDeduction = calcCardDeduction(cardSpending, totalSalary)
 
   const products = summarizeProductBenefits(investments, year)
@@ -320,7 +421,8 @@ export function computeTaxSettlement({ entries, investments, paymentMethods, set
   const bracket = bracketLabel(taxableIncome)
 
   const earnedIncomeTaxCredit = calcEarnedIncomeTaxCredit(calculatedTax, totalSalary)
-  const childrenCredit = calcChildrenCredit(settings?.children)
+  const childCreditAge = childCreditAgeThreshold(year)
+  const childrenCredit = calcChildrenCredit(settings?.children, year)
 
   const categoryBuckets = aggregateDeductibleCategories(entries, year)
   const medical = calcMedicalCredit(
@@ -346,6 +448,8 @@ export function computeTaxSettlement({ entries, investments, paymentMethods, set
     products.IRP.contribution,
     totalSalary
   )
+  const standardTaxCredit = calcStandardTaxCredit({ medical, education, insurance, donation, rent })
+  const marriageCredit = calcMarriageCredit(settings?.marriageCredit, year)
 
   const totalTaxCredit =
     earnedIncomeTaxCredit +
@@ -355,7 +459,9 @@ export function computeTaxSettlement({ entries, investments, paymentMethods, set
     insurance.credit +
     donation.credit +
     rent.credit +
-    pension.credit
+    pension.credit +
+    standardTaxCredit +
+    marriageCredit
 
   const determinedTax = Math.max(0, calculatedTax - totalTaxCredit)
   const prepaidTax = settings?.prepaidTax || 0
@@ -378,6 +484,7 @@ export function computeTaxSettlement({ entries, investments, paymentMethods, set
     calculatedTax,
     bracket,
     earnedIncomeTaxCredit,
+    childCreditAge,
     childrenCredit,
     categoryBuckets,
     medical,
@@ -386,6 +493,8 @@ export function computeTaxSettlement({ entries, investments, paymentMethods, set
     donation,
     rent,
     pension,
+    standardTaxCredit,
+    marriageCredit,
     totalTaxCredit,
     determinedTax,
     prepaidTax,
@@ -428,9 +537,19 @@ export function generateTaxTips(result) {
     }
   }
 
-  const pensionRoom = 6_000_000 - products.연금저축.contribution
+  if (cardSpending.excluded > 0) {
+    tips.push({
+      level: 'info',
+      title: '미확인 결제수단은 카드 공제에서 제외',
+      detail: `${fmt(cardSpending.excluded)}은 신용카드·체크카드·현금영수증 등으로 확인되지 않아 카드 사용액에서 제외했습니다.`,
+    })
+  }
+
+  const pensionTotalRoom =
+    9_000_000 - products.연금저축.contribution - products.IRP.contribution
+  const pensionRoom = Math.min(6_000_000 - products.연금저축.contribution, pensionTotalRoom)
   if (pensionRoom > 0) {
-    const rate = totalSalary <= 55_000_000 ? 0.165 : 0.132
+    const rate = totalSalary <= 55_000_000 ? 0.15 : 0.12
     tips.push({
       level: 'tip',
       title: '연금저축 한도 미사용',
@@ -438,8 +557,7 @@ export function generateTaxTips(result) {
     })
   }
 
-  const pensionIrpRoom =
-    9_000_000 - products.연금저축.contribution - products.IRP.contribution
+  const pensionIrpRoom = pensionTotalRoom
   if (pensionIrpRoom > 0) {
     tips.push({
       level: 'tip',
@@ -457,11 +575,23 @@ export function generateTaxTips(result) {
     })
   }
 
-  if (totalSalary <= 70_000_000 && settings?.isHomeless && products.주택청약.contribution < 2_400_000) {
+  if (totalSalary <= 70_000_000 && settings?.isHomeless && products.주택청약.contribution < HOUSING_SAVING_LIMIT) {
     tips.push({
       level: 'tip',
       title: '주택청약 한도 미사용',
-      detail: '무주택 + 총급여 7천 이하 조건 충족. 연 240만원까지 40% 소득공제.',
+      detail: '무주택 + 총급여 7천 이하 조건 충족. 연 300만원까지 40% 소득공제.',
+    })
+  }
+
+  if (
+    !settings?.marriageCredit &&
+    result.year >= MARRIAGE_CREDIT_START_YEAR &&
+    result.year <= MARRIAGE_CREDIT_END_YEAR
+  ) {
+    tips.push({
+      level: 'info',
+      title: '혼인세액공제 확인',
+      detail: '2024~2026년에 혼인신고를 했다면 생애 1회 50만원 세액공제 대상일 수 있습니다.',
     })
   }
 

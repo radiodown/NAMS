@@ -30,12 +30,57 @@ import CalendarInput from './CalendarInput'
 import NumberInput from './NumberInput'
 import PlusIcon from './PlusIcon'
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4" />
+    </svg>
+  )
+}
+
 const INVEST_COLORS = [
   '#d97706', '#dc2626', '#16a34a', '#0891b2', '#2563eb',
   '#7c3aed', '#db2777', '#0d9488',
 ]
 
 const defaultColor = (kind) => INVEST_META[kind]?.color || INVEST_COLORS[0]
+
+function hexToRgb(hex) {
+  const s = String(hex || '').trim().replace(/^#/, '')
+  const full = s.length === 3 ? s.replace(/./g, (c) => c + c) : s
+  if (full.length !== 6) return null
+  const n = Number.parseInt(full, 16)
+  return Number.isNaN(n) ? null : [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+
+function rgbToHex([r, g, b]) {
+  const h = (n) => Math.round(Math.min(255, Math.max(0, n))).toString(16).padStart(2, '0')
+  return `#${h(r)}${h(g)}${h(b)}`
+}
+
+function productColor(product) {
+  return String(product?.color || '').trim() || defaultColor(product?.kind)
+}
+
+function averageProductColor(products) {
+  let r = 0
+  let g = 0
+  let b = 0
+  let count = 0
+
+  products.forEach((product) => {
+    const rgb = hexToRgb(productColor(product))
+    if (!rgb) return
+    r += rgb[0]
+    g += rgb[1]
+    b += rgb[2]
+    count += 1
+  })
+
+  if (count === 0) return productColor(products[0])
+  return rgbToHex([r / count, g / count, b / count])
+}
 
 // Representative FX pairs shown in the rotating top widget.
 const REP_FX_PAIRS = [
@@ -620,6 +665,7 @@ export default function InvestmentStage({ investments }) {
   const [stockSearchOpen, setStockSearchOpen] = useState(false)
   const [stockSearchLockedQuery, setStockSearchLockedQuery] = useState('')
   const stockSymbolLookupRef = useRef('')
+  const stockSearchRunRef = useRef(0)
   const quoteFailuresRef = useRef({})
 
   // rawItems feeds summarize/exchangeRateMap so legacy 환율 widgets keep
@@ -695,6 +741,7 @@ export default function InvestmentStage({ investments }) {
           id: gid,
           name: groupNameById.get(gid) || '새 그룹',
           items: members,
+          color: averageProductColor(members),
           total,
           cost,
           profit,
@@ -756,22 +803,24 @@ export default function InvestmentStage({ investments }) {
     }
 
     let cancelled = false
-    setStockSearch({ state: 'loading', query, items: [], error: '' })
+    const runId = ++stockSearchRunRef.current
+    setStockSearch({ state: 'loading', query, items: [], error: '', mode: 'local' })
     const timer = window.setTimeout(async () => {
       try {
-        const results = await fetchStockSearch(query, { limit: 7 })
-        if (cancelled) return
-        setStockSearch({ state: 'done', query, items: results, error: '' })
+        const results = await fetchStockSearch(query, { limit: 7, localOnly: true })
+        if (cancelled || stockSearchRunRef.current !== runId) return
+        setStockSearch({ state: 'done', query, items: results, error: '', mode: 'local' })
         const autoResult = chooseStockLookupResult(query, results)
         if (autoResult) applyStockLookupResult(autoResult)
         setStockSearchOpen(true)
       } catch (error) {
-        if (cancelled) return
+        if (cancelled || stockSearchRunRef.current !== runId) return
         setStockSearch({
           state: 'error',
           query,
           items: [],
           error: error?.message || '검색 실패',
+          mode: 'local',
         })
         setStockSearchOpen(true)
       }
@@ -794,7 +843,7 @@ export default function InvestmentStage({ investments }) {
     let cancelled = false
     const timer = window.setTimeout(async () => {
       stockSymbolLookupRef.current = normalized
-      const results = await fetchStockSearch(raw, { limit: 7 }).catch(() => [])
+      const results = await fetchStockSearch(raw, { limit: 7, localOnly: true }).catch(() => [])
       if (cancelled) return
       const match = chooseStockLookupResult(normalized, results) || chooseStockLookupResult(raw, results)
       if (match) applyStockLookupResult(match, { lockName: true })
@@ -959,6 +1008,7 @@ export default function InvestmentStage({ investments }) {
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }))
 
   function selectKind(kind) {
+    stockSearchRunRef.current += 1
     setForm((f) => ({
       ...f,
       kind,
@@ -980,6 +1030,31 @@ export default function InvestmentStage({ investments }) {
     stockSymbolLookupRef.current = ''
     setStockSearchOpen(true)
     set('name', value)
+  }
+
+  async function runStockRemoteSearch() {
+    if (form.kind !== '주식') return
+    const query = (form.name.trim() || form.quoteSymbol.trim()).trim()
+    if (query.length < 2) return
+
+    setStockSearchLockedQuery('')
+    setStockSearchOpen(true)
+    const runId = ++stockSearchRunRef.current
+    setStockSearch({ state: 'loading', query, items: [], error: '', mode: 'remote' })
+    try {
+      const results = await fetchStockSearch(query, { limit: 7 })
+      if (stockSearchRunRef.current !== runId) return
+      setStockSearch({ state: 'done', query, items: results, error: '', mode: 'remote' })
+    } catch (error) {
+      if (stockSearchRunRef.current !== runId) return
+      setStockSearch({
+        state: 'error',
+        query,
+        items: [],
+        error: error?.message || '검색 실패',
+        mode: 'remote',
+      })
+    }
   }
 
   function applyStockLookupResult(result, { lockName = false, fetchQuote = false } = {}) {
@@ -1031,6 +1106,7 @@ export default function InvestmentStage({ investments }) {
   }
 
   function applyStockSearchResult(result) {
+    stockSearchRunRef.current += 1
     const name = result.name || normalizeStockSymbol(result.symbol)
     applyStockLookupResult(result, { lockName: true, fetchQuote: true })
     setStockSearchLockedQuery(name)
@@ -1181,6 +1257,7 @@ export default function InvestmentStage({ investments }) {
   }
 
   function openAdd() {
+    stockSearchRunRef.current += 1
     setEditingId(null)
     setForm(blankForm(form.kind))
     setStockSearch({ state: 'idle', query: '', items: [], error: '' })
@@ -1191,6 +1268,7 @@ export default function InvestmentStage({ investments }) {
   }
 
   function startEdit(p) {
+    stockSearchRunRef.current += 1
     const nextForm = formFromProduct(p)
     setEditingId(p.id)
     setForm(nextForm)
@@ -1210,6 +1288,7 @@ export default function InvestmentStage({ investments }) {
   }
 
   function cancelEdit() {
+    stockSearchRunRef.current += 1
     setEditingId(null)
     setForm(blankForm(form.kind))
     setStockSearch({ state: 'idle', query: '', items: [], error: '' })
@@ -1562,29 +1641,48 @@ export default function InvestmentStage({ investments }) {
             }}
           >
             <label>{nameLabel}</label>
-            <input
-              type="text"
-              placeholder={namePlaceholder}
-              value={form.name}
-              onFocus={() => {
-                if (
-                  form.kind === '주식' &&
-                  stockSearch.items.length > 0 &&
-                  form.name.trim() !== stockSearchLockedQuery
-                ) {
-                  setStockSearchOpen(true)
+            <div className={form.kind === '주식' ? 'stock-search-control' : undefined}>
+              <input
+                type="text"
+                placeholder={namePlaceholder}
+                value={form.name}
+                onFocus={() => {
+                  if (
+                    form.kind === '주식' &&
+                    stockSearch.items.length > 0 &&
+                    form.name.trim() !== stockSearchLockedQuery
+                  ) {
+                    setStockSearchOpen(true)
+                  }
+                }}
+                onChange={(e) =>
+                  form.kind === '주식' ? setStockName(e.target.value) : set('name', e.target.value)
                 }
-              }}
-              onChange={(e) =>
-                form.kind === '주식' ? setStockName(e.target.value) : set('name', e.target.value)
-              }
-            />
+              />
+              {form.kind === '주식' && (
+                <button
+                  type="button"
+                  className="stock-search-button"
+                  onClick={runStockRemoteSearch}
+                  disabled={
+                    (form.name.trim() || form.quoteSymbol.trim()).length < 2 ||
+                    (stockSearch.state === 'loading' && stockSearch.mode === 'remote')
+                  }
+                  aria-label="외부 종목 검색"
+                  title="외부 종목 검색"
+                >
+                  <SearchIcon />
+                </button>
+              )}
+            </div>
             {form.kind === '주식' &&
               stockSearchOpen &&
               stockSearch.query.trim().length >= 2 && (
                 <div className="stock-search-results">
                   {stockSearch.state === 'loading' ? (
-                    <div className="stock-search-empty">종목 검색중</div>
+                    <div className="stock-search-empty">
+                      {stockSearch.mode === 'remote' ? '종목 검색중' : '자동완성 확인중'}
+                    </div>
                   ) : stockSearch.items.length > 0 ? (
                     stockSearch.items.map((result) => (
                       <button
@@ -1603,7 +1701,11 @@ export default function InvestmentStage({ investments }) {
                     ))
                   ) : (
                     <div className="stock-search-empty">
-                      {stockSearch.state === 'error' ? stockSearch.error : '검색 결과 없음'}
+                      {stockSearch.state === 'error'
+                        ? stockSearch.error
+                        : stockSearch.mode === 'remote'
+                          ? '검색 결과 없음'
+                          : '자동완성 결과 없음'}
                     </div>
                   )}
                 </div>
@@ -2038,7 +2140,7 @@ export default function InvestmentStage({ investments }) {
                         <InvestmentGroupCard
                           key={entry.id}
                           group={entry.group}
-                          accent={section.color}
+                          accent={entry.group.color}
                           today={today}
                           rates={rates}
                           dropActive={dropGroupId === entry.id}
@@ -2398,6 +2500,8 @@ function InvestmentGroupCard({
     memberNames.length > 3
       ? `${memberNames.slice(0, 3).join(', ')} 외 ${memberNames.length - 3}개`
       : memberNames.join(', ')
+  const previewItems = group.items.slice(0, 1)
+  const previewExtraCount = Math.max(0, group.items.length - previewItems.length)
   const returnPct = group.cost > 0 ? (group.profit / group.cost) * 100 : 0
 
   useEffect(() => {
@@ -2441,12 +2545,11 @@ function InvestmentGroupCard({
         onDrop={onDrop}
       >
         <div className="invest-card-head">
-          <span className="invest-card-name">
+          <span className="invest-card-name invest-folder-tab">
             <span className="invest-dot" style={{ background: accent }} />
-            그룹
+            <b>{group.items.length}개</b>
           </span>
           <div className="invest-card-tools">
-            <span className="quote-badge idle">{group.items.length}개</span>
             <button
               type="button"
               className="icon-btn"
@@ -2507,7 +2610,18 @@ function InvestmentGroupCard({
               </span>
             )}
           </div>
-          <div className="invest-widget-detail">{memberText || '그룹 항목 없음'}</div>
+          <div className="invest-folder-preview" aria-label={memberText || '그룹 항목 없음'}>
+            {previewItems.length > 0 ? (
+              <>
+                {previewItems.map((item) => (
+                  <span key={item.id}>{item.name || item.kind}</span>
+                ))}
+                {previewExtraCount > 0 && <span className="more">+{previewExtraCount}</span>}
+              </>
+            ) : (
+              <span>그룹 항목 없음</span>
+            )}
+          </div>
         </div>
       </div>
       {folderOpen && (

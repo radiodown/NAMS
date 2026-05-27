@@ -106,7 +106,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
       <div className="card tax-settings">
         <div className="card-head">
           <h3>기준 정보</h3>
-          <p className="sub">총급여와 가족 구성, 무주택 여부에 따라 공제 한도가 달라집니다.</p>
+          <p className="sub">총급여와 가족 구성, 무주택 요건에 따라 공제 한도가 달라집니다.</p>
         </div>
         <div className="tax-settings-grid">
           <div className="field">
@@ -140,7 +140,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
             />
           </div>
           <div className="field">
-            <label>자녀 수 (8세 이상)</label>
+            <label>자녀 수 ({result.childCreditAge}세 이상)</label>
             <NumberInput
               decimal={false}
               min="0"
@@ -166,6 +166,42 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
               onChange={(value) => update({ prepaidTax: Number(value) || 0 })}
             />
           </div>
+          <div className="field">
+            <label>의료비 추가 자료 (연간)</label>
+            <NumberInput
+              decimal={false}
+              min="0"
+              value={String(settings.extraMedical || 0)}
+              onChange={(value) => update({ extraMedical: Number(value) || 0 })}
+            />
+          </div>
+          <div className="field">
+            <label>교육비 추가 자료 (연간)</label>
+            <NumberInput
+              decimal={false}
+              min="0"
+              value={String(settings.extraEducation || 0)}
+              onChange={(value) => update({ extraEducation: Number(value) || 0 })}
+            />
+          </div>
+          <div className="field">
+            <label>보험료 추가 자료 (연간)</label>
+            <NumberInput
+              decimal={false}
+              min="0"
+              value={String(settings.extraInsurance || 0)}
+              onChange={(value) => update({ extraInsurance: Number(value) || 0 })}
+            />
+          </div>
+          <div className="field">
+            <label>기부금 추가 자료 (연간)</label>
+            <NumberInput
+              decimal={false}
+              min="0"
+              value={String(settings.extraDonation || 0)}
+              onChange={(value) => update({ extraDonation: Number(value) || 0 })}
+            />
+          </div>
           <div className="field tax-toggle-field">
             <label>
               <input
@@ -173,7 +209,17 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
                 checked={settings.isHomeless}
                 onChange={(e) => update({ isHomeless: e.target.checked })}
               />
-              무주택 세대주 (월세·청약 공제 대상)
+              무주택 세대 요건 충족 (월세·청약 공제 대상)
+            </label>
+          </div>
+          <div className="field tax-toggle-field">
+            <label>
+              <input
+                type="checkbox"
+                checked={Boolean(settings.marriageCredit)}
+                onChange={(e) => update({ marriageCredit: e.target.checked })}
+              />
+              혼인세액공제 대상 (2024~2026년 혼인신고 · 생애 1회)
             </label>
           </div>
         </div>
@@ -183,7 +229,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
         <div className="card-head">
           <h3>카드 사용액 공제</h3>
           <p className="sub">
-            총급여 25% 임계선을 넘긴 금액에 대해서만 공제가 적용됩니다.
+            공제대상 결제수단 사용액 중 총급여 25%를 넘긴 금액에 적용됩니다.
           </p>
         </div>
         <div className="tax-card-gauge">
@@ -230,7 +276,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
             <span>{formatKRW(result.cardDeduction.breakdown.신용카드)}</span>
           </div>
           <div className="tax-card-table-row">
-            <span>체크/현금/간편결제 (30%)</span>
+            <span>체크/현금영수증 (30%)</span>
             <span>{formatKRW(result.cardSpending.체크카드현금)}</span>
             <span>{formatKRW(result.cardDeduction.breakdown.체크카드현금)}</span>
           </div>
@@ -245,7 +291,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
             <span>{formatKRW(result.cardDeduction.breakdown.대중교통)}</span>
           </div>
           <div className="tax-card-table-row">
-            <span>도서/공연/박물관 (30%)</span>
+            <span>문화체육 등 (30%)</span>
             <span>{formatKRW(result.cardSpending.도서공연)}</span>
             <span>{formatKRW(result.cardDeduction.breakdown.도서공연)}</span>
           </div>
@@ -253,7 +299,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
             <span>한도</span>
             <span />
             <span>
-              일반 {formatKRW(result.cardDeduction.cap.regular)} + 추가 {formatKRW(result.cardDeduction.cap.extra)}
+              기본 {formatKRW(result.cardDeduction.cap.regular)} + 추가 {formatKRW(result.cardDeduction.cap.extra)}
             </span>
           </div>
         </div>
@@ -331,7 +377,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
           <Row
             label="− 주택청약 소득공제"
             value={`-${formatKRW(result.housingDeduction)}`}
-            hint="40% × 한도 240만"
+            hint="40% × 한도 300만"
           />
         )}
         <Row
@@ -354,7 +400,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
           <Row
             label="− 자녀세액공제"
             value={`-${formatKRW(result.childrenCredit)}`}
-            hint={`자녀 ${settings.children}명`}
+            hint={`${result.childCreditAge}세 이상 ${settings.children}명`}
           />
         )}
         <Row
@@ -389,6 +435,20 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
           value={`-${formatKRW(result.pension.credit)}`}
           hint={`${formatKRW(result.pension.eligible)} × ${(result.pension.rate * 100).toFixed(1)}%`}
         />
+        {result.standardTaxCredit > 0 && (
+          <Row
+            label="− 표준세액공제"
+            value={`-${formatKRW(result.standardTaxCredit)}`}
+            hint="특별세액공제 미적용 시 13만"
+          />
+        )}
+        {result.marriageCredit > 0 && (
+          <Row
+            label="− 혼인세액공제"
+            value={`-${formatKRW(result.marriageCredit)}`}
+            hint="2024~2026 혼인신고 · 생애 1회"
+          />
+        )}
         <Row
           label="= 결정세액"
           value={formatKRW(result.determinedTax)}
@@ -432,7 +492,7 @@ export default function TaxSettlementStage({ entries, investments, paymentMethod
 
       <div className="tax-disclaimer">
         ⚠️ 본 계산은 평균적인 직장인 케이스를 단순화한 추정값입니다. 실제 연말정산은
-        부양가족 구성, 의료비 종류, 기부금 단체 분류, 회사 원천징수 자료 등에 따라
+        부양가족 구성, 의료비 종류, 기부금 단체 분류, 지방소득세, 회사 원천징수 자료 등에 따라
         달라질 수 있어요.
       </div>
     </div>

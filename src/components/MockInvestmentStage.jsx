@@ -31,6 +31,15 @@ const QUOTE_STAGGER_MS = 1400
 const HISTORY_RANGE = '1y'
 const HISTORY_INTERVAL = '1d'
 
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4 4" />
+    </svg>
+  )
+}
+
 const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms))
 
 function signed(value) {
@@ -73,6 +82,7 @@ export default function MockInvestmentStage({ mockInvest }) {
   const [historyState, setHistoryState] = useState('idle')
   const [historyOpen, setHistoryOpen] = useState(false)
   const lockedQueryRef = useRef('')
+  const searchRunRef = useRef(0)
 
   const heldSymbols = useMemo(
     () =>
@@ -229,20 +239,22 @@ export default function MockInvestmentStage({ mockInvest }) {
       return undefined
     }
     let cancelled = false
-    setSearch((prev) => ({ ...prev, state: 'loading', error: '' }))
+    const runId = ++searchRunRef.current
+    setSearch((prev) => ({ ...prev, state: 'loading', error: '', mode: 'local' }))
     const timer = window.setTimeout(async () => {
       try {
-        const results = await fetchStockSearch(query, { limit: 7 })
-        if (cancelled) return
-        setSearch((prev) => ({ ...prev, state: 'done', items: results, error: '' }))
+        const results = await fetchStockSearch(query, { limit: 7, localOnly: true })
+        if (cancelled || searchRunRef.current !== runId) return
+        setSearch((prev) => ({ ...prev, state: 'done', items: results, error: '', mode: 'local' }))
         setSearchOpen(true)
       } catch (error) {
-        if (cancelled) return
+        if (cancelled || searchRunRef.current !== runId) return
         setSearch((prev) => ({
           ...prev,
           state: 'error',
           items: [],
           error: error?.message || '검색 실패',
+          mode: 'local',
         }))
         setSearchOpen(true)
       }
@@ -275,6 +287,7 @@ export default function MockInvestmentStage({ mockInvest }) {
   const hasTrades = portfolio.trades.length > 0 || portfolio.positions.length > 0
 
   function selectSearchItem(item) {
+    searchRunRef.current += 1
     const symbol = normalizeStockSymbol(item.symbol || item.name || '')
     if (!symbol) return
     const name = item.name || symbol
@@ -287,6 +300,30 @@ export default function MockInvestmentStage({ mockInvest }) {
     setSearch((prev) => ({ ...prev, query: name }))
     lockedQueryRef.current = name
     setSearchOpen(false)
+  }
+
+  async function runRemoteSearch() {
+    const query = search.query.trim()
+    if (query.length < 2) return
+
+    lockedQueryRef.current = ''
+    setSearchOpen(true)
+    const runId = ++searchRunRef.current
+    setSearch({ query, state: 'loading', items: [], error: '', mode: 'remote' })
+    try {
+      const results = await fetchStockSearch(query, { limit: 7 })
+      if (searchRunRef.current !== runId) return
+      setSearch({ query, state: 'done', items: results, error: '', mode: 'remote' })
+    } catch (error) {
+      if (searchRunRef.current !== runId) return
+      setSearch({
+        query,
+        state: 'error',
+        items: [],
+        error: error?.message || '검색 실패',
+        mode: 'remote',
+      })
+    }
   }
 
   async function refreshSelectedQuote() {
@@ -519,11 +556,25 @@ export default function MockInvestmentStage({ mockInvest }) {
                   setSearch((prev) => ({ ...prev, query: e.target.value }))
                 }}
               />
+              <button
+                type="button"
+                className="stock-search-button"
+                onClick={runRemoteSearch}
+                disabled={
+                  search.query.trim().length < 2 ||
+                  (search.state === 'loading' && search.mode === 'remote')
+                }
+                aria-label="외부 종목 검색"
+                title="외부 종목 검색"
+              >
+                <SearchIcon />
+              </button>
               {selected && (
                 <button
                   type="button"
                   className="icon-btn"
                   onClick={() => {
+                    searchRunRef.current += 1
                     setSelected(null)
                     setSearch({ query: '', state: 'idle', items: [], error: '' })
                   }}
@@ -554,9 +605,21 @@ export default function MockInvestmentStage({ mockInvest }) {
               )}
               {searchOpen && search.state === 'loading' && (
                 <div className="card-product-results">
-                  <div className="card-product-empty">검색 중…</div>
+                  <div className="card-product-empty">
+                    {search.mode === 'remote' ? '종목 검색 중' : '자동완성 확인중'}
+                  </div>
                 </div>
               )}
+              {searchOpen &&
+                search.state === 'done' &&
+                search.items.length === 0 &&
+                search.query.trim().length >= 2 && (
+                  <div className="card-product-results">
+                    <div className="card-product-empty">
+                      {search.mode === 'remote' ? '검색 결과 없음' : '자동완성 결과 없음'}
+                    </div>
+                  </div>
+                )}
               {searchOpen && search.state === 'error' && (
                 <div className="card-product-results">
                   <div className="card-product-empty">{search.error || '검색 실패'}</div>

@@ -1634,6 +1634,7 @@ button {
 }
 
 .card-product-search input {
+  flex: 1;
   min-width: 0;
 }
 
@@ -3164,6 +3165,51 @@ td.memo {
   position: relative;
 }
 
+.stock-search-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 7px;
+  align-items: center;
+}
+
+.stock-search-button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease, transform 0.14s ease;
+}
+
+.stock-search-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.stock-search-button:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.stock-search-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  transform: none;
+}
+
+.stock-search-button:disabled:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--muted);
+}
+
 .stock-search-results {
   position: absolute;
   z-index: 95;
@@ -4002,19 +4048,123 @@ td.memo {
   gap: 12px;
 }
 
-.invest-group-card {
-  border-style: dashed;
-  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+.invest-card.invest-group-card {
+  --folder-edge: color-mix(in srgb, var(--accent) 26%, var(--border));
+  --folder-back: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+  --folder-face: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  isolation: isolate;
+  border-color: transparent;
+  border-style: solid;
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
-  height: 150px;
-  min-height: 150px;
+  gap: 6px;
+  padding: 0 14px 11px;
 }
 
-.invest-group-card.drop-target {
-  border-style: solid;
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 18%, transparent);
+.invest-card.invest-group-card::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: 25px;
+  right: 7px;
+  bottom: 7px;
+  left: 10px;
+  height: auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 17%, var(--border));
+  border-radius: 10px;
+  background: var(--folder-back);
+  opacity: 1;
+  pointer-events: none;
+  transform: translateY(-6px);
+}
+
+.invest-card.invest-group-card::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: 23px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border: 1px solid var(--folder-edge);
+  border-radius: 0 11px 11px 11px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent) 8%, var(--surface)) 0%, var(--folder-face) 62%, var(--surface) 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.05);
+  pointer-events: none;
+}
+
+.invest-group-card > .invest-card-head,
+.invest-group-card > .invest-widget-body {
+  position: relative;
+  z-index: 1;
+}
+
+.invest-card.invest-group-card.drop-target {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.invest-card.invest-group-card:hover {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.invest-card.invest-group-card:hover::after,
+.invest-card.invest-group-card.drop-target::after {
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--border));
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.11);
+}
+
+.invest-card.invest-group-card.drop-target::before {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+}
+
+.invest-card.invest-group-card.drop-target::after {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 12%, var(--surface)) 0%, color-mix(in srgb, var(--accent) 7%, var(--surface)) 100%);
+}
+
+.invest-folder-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 84px;
+  width: 84px;
+  max-width: min(84px, 100%);
+  min-height: 24px;
+  gap: 5px;
+  padding: 4px 10px 5px;
+  border: 1px solid var(--folder-edge);
+  border-bottom-color: transparent;
+  border-radius: 9px 9px 0 0;
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: visible;
+  -webkit-line-clamp: initial;
+  -webkit-box-orient: initial;
+}
+
+.invest-folder-tab b {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.invest-folder-tab .invest-dot {
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.invest-group-card .invest-card-tools {
+  margin-top: -1px;
 }
 
 .invest-group-card .invest-group-name {
@@ -4040,6 +4190,44 @@ td.memo {
   max-width: none;
   min-height: 28px;
   cursor: text;
+}
+
+.invest-group-card .invest-widget-body {
+  gap: 2px;
+}
+
+.invest-folder-preview {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-top: auto;
+}
+
+.invest-folder-preview span {
+  display: block;
+  min-width: 0;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invest-folder-preview span:first-child {
+  flex: 1 1 auto;
+}
+
+.invest-folder-preview .more {
+  flex: 0 0 auto;
+  color: var(--accent);
+  text-align: center;
 }
 
 .invest-widget-body {
@@ -5461,9 +5649,14 @@ td.memo {
     padding: 11px 12px 10px;
   }
 
-  .invest-group-card {
-    height: 134px;
-    min-height: 134px;
+  .invest-card.invest-group-card {
+    padding: 0 12px 10px;
+  }
+
+  .invest-folder-tab {
+    flex-basis: 74px;
+    width: 74px;
+    max-width: min(74px, 100%);
   }
 
   .invest-card-value strong {

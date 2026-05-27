@@ -288,6 +288,7 @@ export function defaultTaxSettings() {
     extraInsurance: 0,
     monthlyRent: 0,
     prepaidTax: 0,
+    marriageCredit: false,
   }
 }
 
@@ -321,6 +322,7 @@ export function normalizeTaxSettings(value) {
     extraInsurance: Math.max(0, num(source.extraInsurance)),
     monthlyRent: Math.max(0, num(source.monthlyRent)),
     prepaidTax: Math.max(0, num(source.prepaidTax)),
+    marriageCredit: Boolean(source.marriageCredit),
   }
 }
 

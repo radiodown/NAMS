@@ -4,7 +4,7 @@
 export const STOCK_SEARCH_PRESETS_META = Object.freeze({
   "schemaVersion": 1,
   "source": "naver-mobile-stock-api",
-  "generatedAt": "2026-05-27T06:41:19.336Z",
+  "generatedAt": "2026-05-27T06:48:53.115Z",
   "seed": "tools/stock-preset-scraper/seed-presets.json",
   "scrape": {
     "kospiPages": 3,
