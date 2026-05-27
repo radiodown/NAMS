@@ -5,6 +5,8 @@ export const STORE_PATHS = Object.freeze({
     fixedSections: 'settings.fixedSections',
     recurringSuggestions: 'settings.recurringSuggestions',
     taxSettlement: 'settings.taxSettlement',
+    graphStage: 'settings.graphStage',
+    investmentStage: 'settings.investmentStage',
   }),
   income: Object.freeze({
     categories: 'stages.income.categories',

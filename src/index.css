@@ -4690,6 +4690,7 @@ td.memo {
 .invest-kind-chip {
   display: inline-flex;
   align-items: center;
+  gap: 5px;
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -4703,6 +4704,36 @@ td.memo {
 
 :root[data-theme='dark'] .invest-kind-chip {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.quote-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #94a3b8;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #94a3b8 18%, transparent);
+}
+
+.quote-status-dot.ok {
+  background: #16a34a;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, #16a34a 18%, transparent),
+    0 0 9px color-mix(in srgb, #16a34a 58%, transparent);
+}
+
+.quote-status-dot.error {
+  background: #dc2626;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, #dc2626 18%, transparent),
+    0 0 9px color-mix(in srgb, #dc2626 58%, transparent);
+}
+
+.quote-status-dot.loading {
+  background: #2563eb;
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, #2563eb 18%, transparent),
+    0 0 9px color-mix(in srgb, #2563eb 48%, transparent);
 }
 
 /* Hide edit/delete icons until the card is hovered or focused on desktop;
@@ -4982,7 +5013,28 @@ td.memo {
   min-width: 0;
 }
 
+.invest-interest-detail-card {
+  grid-column: 1 / -1;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
 .invest-stock-chart-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invest-interest-detail-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -4996,12 +5048,21 @@ td.memo {
   line-height: 1.25;
 }
 
-.invest-stock-chart-head h3 {
+.invest-stock-chart-head h3,
+.invest-interest-detail-head h3 {
   margin: 2px 0 0;
   font-size: 16px;
   font-weight: 900;
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+
+.invest-interest-detail-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 .invest-stock-chart-change {
@@ -5052,6 +5113,121 @@ td.memo {
 .invest-stock-chart-plot {
   width: 100%;
   min-width: 0;
+}
+
+.invest-interest-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.invest-interest-detail-stat {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.invest-interest-detail-stat.primary {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.invest-interest-detail-stat span {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.invest-interest-detail-stat strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.22;
+  overflow-wrap: anywhere;
+}
+
+.invest-interest-detail-stat.primary strong {
+  color: var(--accent);
+}
+
+.invest-interest-detail-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.invest-interest-detail-progress > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.invest-interest-detail-progress b {
+  color: var(--text);
+  font-weight: 900;
+}
+
+.invest-interest-detail-progress .invest-progress {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+}
+
+.invest-interest-detail-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 12px;
+}
+
+.invest-interest-detail-row {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.invest-interest-detail-row span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.invest-interest-detail-row b {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 900;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.invest-interest-detail-memo {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .invest-chart-state {
@@ -5845,13 +6021,19 @@ td.memo {
     height: 230px;
   }
 
-  .invest-stock-chart-head {
+  .invest-stock-chart-head,
+  .invest-interest-detail-head {
     flex-direction: column;
   }
 
   .invest-stock-chart-actions,
   .stock-range-toggle {
     width: 100%;
+  }
+
+  .invest-interest-detail-stats,
+  .invest-interest-detail-rows {
+    grid-template-columns: 1fr;
   }
 
   .payment-form {

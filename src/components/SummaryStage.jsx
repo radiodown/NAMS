@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   ResponsiveContainer,
   LineChart,
@@ -19,6 +19,9 @@ import {
 } from 'recharts'
 import { formatKRW, compactKRW, monthOf, todayStr } from '../lib/format'
 import { exchangeRateMap, projectAssets, stockMetrics, summarize } from '../lib/investments'
+import { defaultGraphStageSettings, normalizeGraphStageSettings } from '../lib/schema'
+import { useStoredSlice } from '../lib/store'
+import { STORE_PATHS } from '../lib/storePaths'
 
 const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
@@ -134,13 +137,33 @@ function ProjectionEndpointLabel({ x, y, value, payload, index }) {
 
 export default function SummaryStage({ entries, investments }) {
   const today = todayStr()
-  const [pieType, setPieType] = useState('지출')
-  const [year, setYear] = useState('all')
-  const [horizonYears, setHorizonYears] = useState(DEFAULT_HORIZON_YEARS)
-  const [investmentWeightOverride, setInvestmentWeightOverride] = useState(null)
-  const [annualReturnOverride, setAnnualReturnOverride] = useState(null)
-  const [wageGrowth, setWageGrowth] = useState(0)
-  const [monthlyIncomeInvestmentOverride, setMonthlyIncomeInvestmentOverride] = useState(0)
+  const [rawGraphSettings, setGraphSettings] = useStoredSlice(
+    STORE_PATHS.settings.graphStage,
+    defaultGraphStageSettings
+  )
+  const graphSettings = useMemo(
+    () => normalizeGraphStageSettings(rawGraphSettings),
+    [rawGraphSettings]
+  )
+  const {
+    pieType,
+    year,
+    horizonYears,
+    investmentWeightOverride,
+    annualReturnOverride,
+    wageGrowth,
+    monthlyIncomeInvestmentOverride,
+  } = graphSettings
+
+  function updateGraphSettings(patch) {
+    setGraphSettings((prev) =>
+      normalizeGraphStageSettings({
+        ...defaultGraphStageSettings(),
+        ...(prev && typeof prev === 'object' ? prev : {}),
+        ...patch,
+      })
+    )
+  }
 
   const years = useMemo(() => {
     const set = new Set()
@@ -299,9 +322,9 @@ export default function SummaryStage({ entries, investments }) {
                   value={horizonYears}
                   aria-label="미래 자산 추이 기간"
                   onChange={(e) =>
-                    setHorizonYears(
-                      clamp(Number(e.target.value), MIN_HORIZON_YEARS, MAX_HORIZON_YEARS)
-                    )
+                    updateGraphSettings({
+                      horizonYears: clamp(Number(e.target.value), MIN_HORIZON_YEARS, MAX_HORIZON_YEARS),
+                    })
                   }
                 />
               </label>
@@ -318,7 +341,9 @@ export default function SummaryStage({ entries, investments }) {
                   max="100"
                   step="1"
                   value={investmentWeight}
-                  onChange={(e) => setInvestmentWeightOverride(Number(e.target.value))}
+                  onChange={(e) =>
+                    updateGraphSettings({ investmentWeightOverride: Number(e.target.value) })
+                  }
                 />
               </label>
               <label className="projection-control">
@@ -335,7 +360,9 @@ export default function SummaryStage({ entries, investments }) {
                   max="30"
                   step="0.5"
                   value={annualReturn}
-                  onChange={(e) => setAnnualReturnOverride(Number(e.target.value))}
+                  onChange={(e) =>
+                    updateGraphSettings({ annualReturnOverride: Number(e.target.value) })
+                  }
                 />
               </label>
               <label className="projection-control">
@@ -353,7 +380,9 @@ export default function SummaryStage({ entries, investments }) {
                   step="0.5"
                   value={wageGrowth}
                   onChange={(e) =>
-                    setWageGrowth(clamp(Number(e.target.value), MIN_WAGE_GROWTH, MAX_WAGE_GROWTH))
+                    updateGraphSettings({
+                      wageGrowth: clamp(Number(e.target.value), MIN_WAGE_GROWTH, MAX_WAGE_GROWTH),
+                    })
                   }
                 />
               </label>
@@ -368,7 +397,9 @@ export default function SummaryStage({ entries, investments }) {
                   max="100"
                   step="1"
                   value={monthlyIncomeInvestmentWeight}
-                  onChange={(e) => setMonthlyIncomeInvestmentOverride(Number(e.target.value))}
+                  onChange={(e) =>
+                    updateGraphSettings({ monthlyIncomeInvestmentOverride: Number(e.target.value) })
+                  }
                 />
               </label>
               <div className="projection-scenario-summary">
@@ -414,7 +445,7 @@ export default function SummaryStage({ entries, investments }) {
             <div className="year-filter">
               <button
                 className={activeYear === 'all' ? 'on' : ''}
-                onClick={() => setYear('all')}
+                onClick={() => updateGraphSettings({ year: 'all' })}
               >
                 전체
               </button>
@@ -422,7 +453,7 @@ export default function SummaryStage({ entries, investments }) {
                 <button
                   key={y}
                   className={activeYear === y ? 'on' : ''}
-                  onClick={() => setYear(y)}
+                  onClick={() => updateGraphSettings({ year: y })}
                 >
                   {y}년
                 </button>
@@ -487,13 +518,13 @@ export default function SummaryStage({ entries, investments }) {
                 <div className="toggle">
                   <button
                     className={pieType === '지출' ? 'on' : ''}
-                    onClick={() => setPieType('지출')}
+                    onClick={() => updateGraphSettings({ pieType: '지출' })}
                   >
                     지출
                   </button>
                   <button
                     className={pieType === '투자' ? 'on' : ''}
-                    onClick={() => setPieType('투자')}
+                    onClick={() => updateGraphSettings({ pieType: '투자' })}
                   >
                     투자
                   </button>

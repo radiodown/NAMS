@@ -292,6 +292,24 @@ export function defaultTaxSettings() {
   }
 }
 
+export function defaultGraphStageSettings() {
+  return {
+    pieType: '지출',
+    year: 'all',
+    horizonYears: 5,
+    investmentWeightOverride: null,
+    annualReturnOverride: null,
+    wageGrowth: 0,
+    monthlyIncomeInvestmentOverride: 0,
+  }
+}
+
+export function defaultInvestmentStageSettings() {
+  return {
+    analysisOpen: true,
+  }
+}
+
 export function defaultFixedSectionSettings() {
   return {
     incomeCollapsed: false,
@@ -345,6 +363,53 @@ export function normalizeTaxSettings(value) {
   }
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function roundNumberToStep(value, step = 1) {
+  return Math.round(value / step) * step
+}
+
+function boundedNumber(value, fallback, min, max, step = 1) {
+  const n = Number(value)
+  const base = Number.isFinite(n) ? n : fallback
+  return clampNumber(roundNumberToStep(base, step), min, max)
+}
+
+function boundedOptionalNumber(value, min, max, step = 1) {
+  if (value === '' || value == null) return null
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return boundedNumber(n, n, min, max, step)
+}
+
+export function normalizeGraphStageSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  const year = str(source.year)
+  return {
+    pieType: source.pieType === '투자' ? '투자' : '지출',
+    year: year === 'all' || /^\d{4}$/.test(year) ? year : 'all',
+    horizonYears: boundedNumber(source.horizonYears, 5, 1, 80),
+    investmentWeightOverride: boundedOptionalNumber(source.investmentWeightOverride, 0, 100),
+    annualReturnOverride: boundedOptionalNumber(source.annualReturnOverride, -30, 30, 0.5),
+    wageGrowth: boundedNumber(source.wageGrowth, 0, -10, 20, 0.5),
+    monthlyIncomeInvestmentOverride: boundedNumber(
+      source.monthlyIncomeInvestmentOverride,
+      0,
+      0,
+      100
+    ),
+  }
+}
+
+export function normalizeInvestmentStageSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    analysisOpen: source.analysisOpen !== false,
+  }
+}
+
 export function normalizeStageConfig(value) {
   const used = new Set()
   const ordered = []
@@ -371,6 +436,8 @@ export function buildDefaultDoc() {
       fixedSections: defaultFixedSectionSettings(),
       recurringSuggestions: defaultRecurringSuggestionSettings(),
       taxSettlement: defaultTaxSettings(),
+      graphStage: defaultGraphStageSettings(),
+      investmentStage: defaultInvestmentStageSettings(),
     },
     stages: {
       income: {
@@ -423,6 +490,8 @@ export function normalizeDoc(raw) {
         source.settings?.recurringSuggestions
       ),
       taxSettlement: normalizeTaxSettings(source.settings?.taxSettlement),
+      graphStage: normalizeGraphStageSettings(source.settings?.graphStage),
+      investmentStage: normalizeInvestmentStageSettings(source.settings?.investmentStage),
     },
     stages: {
       income: {

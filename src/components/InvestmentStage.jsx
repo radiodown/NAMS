@@ -14,7 +14,12 @@ import {
   YAxis,
 } from 'recharts'
 import { INVEST_META, INVEST_KINDS } from '../lib/categories'
-import { normalizeInvestmentTaxBenefit, taxBenefitOptionsForKind } from '../lib/schema'
+import {
+  defaultInvestmentStageSettings,
+  normalizeInvestmentStageSettings,
+  normalizeInvestmentTaxBenefit,
+  taxBenefitOptionsForKind,
+} from '../lib/schema'
 import { compactKRW, formatKRW, todayStr } from '../lib/format'
 import { exchangeRateMap, productMetrics, stockMetrics, summarize } from '../lib/investments'
 import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
@@ -26,6 +31,8 @@ import {
   normalizeCurrencyCode,
   normalizeStockSymbol,
 } from '../lib/quotes'
+import { useStoredSlice } from '../lib/store'
+import { STORE_PATHS } from '../lib/storePaths'
 import CalendarInput from './CalendarInput'
 import NumberInput from './NumberInput'
 import PlusIcon from './PlusIcon'
@@ -122,6 +129,7 @@ const QUOTE_EMPTY_RETRY_BACKOFF_MS = 1000 * 60 * 5
 const BITCOIN_SYMBOL = 'BTC-KRW'
 const ASSET_TYPE_OPTIONS = ['현금성자산', '금', '외화', '채권', '부동산', '기타']
 const STABLE_ASSET_KINDS = new Set(['예금', '적금', '자산'])
+const INTEREST_DETAIL_KINDS = new Set(['예금', '적금'])
 const MARKET_ASSET_KINDS = new Set(['주식', '비트코인'])
 
 // Long-press duration before a touch becomes a widget drag, and how far the
@@ -184,6 +192,8 @@ function formFromProduct(p) {
 }
 
 const signedKRW = (n) => (n >= 0 ? '+' : '') + formatKRW(n)
+const formatKRWExact = (n) => `${Math.round(Number(n) || 0).toLocaleString('ko-KR')}원`
+const signedKRWExact = (n) => `${n >= 0 ? '+' : '-'}${formatKRWExact(Math.abs(n))}`
 const profitClass = (n) => (n >= 0 ? 'profit-pos' : 'profit-neg')
 const formatRate = (n) => (Number(n) || 0).toLocaleString('ko-KR', { maximumFractionDigits: 4 })
 const formatCurrency = (n, currency) =>
@@ -661,7 +671,15 @@ export default function InvestmentStage({ investments }) {
   const [formOpen, setFormOpen] = useState(false)
   const [quoteStatus, setQuoteStatus] = useState({})
   const [activeChartId, setActiveChartId] = useState(null)
-  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [rawStageSettings, setStageSettings] = useStoredSlice(
+    STORE_PATHS.settings.investmentStage,
+    defaultInvestmentStageSettings
+  )
+  const stageSettings = useMemo(
+    () => normalizeInvestmentStageSettings(rawStageSettings),
+    [rawStageSettings]
+  )
+  const analysisOpen = stageSettings.analysisOpen
   const [stockSearch, setStockSearch] = useState({ state: 'idle', query: '', items: [], error: '' })
   const [stockSearchOpen, setStockSearchOpen] = useState(false)
   const [stockSearchLockedQuery, setStockSearchLockedQuery] = useState('')
@@ -783,7 +801,13 @@ export default function InvestmentStage({ investments }) {
 
   useEffect(() => {
     if (!activeChartId) return
-    if (!items.some((p) => p.id === activeChartId && MARKET_ASSET_KINDS.has(p.kind))) {
+    if (
+      !items.some(
+        (p) =>
+          p.id === activeChartId &&
+          (MARKET_ASSET_KINDS.has(p.kind) || INTEREST_DETAIL_KINDS.has(p.kind))
+      )
+    ) {
       setActiveChartId(null)
     }
   }, [activeChartId, items])
@@ -935,6 +959,10 @@ export default function InvestmentStage({ investments }) {
       const previousFx = hasPreviousFx(p, currency)
       const usedPrevious = quote?.stale || exchangeQuote?.stale || (exchangeError && previousFx)
       const failed = !quote || quote?.stale || exchangeError
+      const previousStatus =
+        p.kind === '주식'
+          ? { state: 'error', text: '갱신 실패' }
+          : { state: 'idle', text: '이전값' }
 
       if (failed) {
         quoteFailuresRef.current[p.id] = { key: quoteFailureKey(p), time: Date.now() }
@@ -946,14 +974,14 @@ export default function InvestmentStage({ investments }) {
         ...prev,
         [p.id]: quote
           ? usedPrevious
-            ? { state: 'idle', text: '이전값' }
+            ? previousStatus
             : quote.cached || exchangeQuote?.cached
             ? { state: 'ok', text: '최근' }
             : exchangeError
             ? { state: 'error', text: '환율 실패' }
             : { state: 'ok', text: '갱신됨' }
           : previousQuote
-            ? { state: 'idle', text: '이전값' }
+            ? previousStatus
             : { state: 'error', text: error?.message || '조회 실패' },
       }))
 
@@ -1299,6 +1327,13 @@ export default function InvestmentStage({ investments }) {
     setFormOpen(false)
   }
 
+  function toggleAnalysisOpen() {
+    setStageSettings((prev) => {
+      const normalized = normalizeInvestmentStageSettings(prev)
+      return { ...normalized, analysisOpen: !normalized.analysisOpen }
+    })
+  }
+
   function handleRemove(p) {
     if (window.confirm(`투자 상품 '${p.name}'을(를) 삭제할까요?`)) {
       removeItem(p.id)
@@ -1308,7 +1343,7 @@ export default function InvestmentStage({ investments }) {
   }
 
   function togglePriceChart(p) {
-    if (!MARKET_ASSET_KINDS.has(p.kind)) return
+    if (!MARKET_ASSET_KINDS.has(p.kind) && !INTEREST_DETAIL_KINDS.has(p.kind)) return
     setActiveChartId((id) => (id === p.id ? null : p.id))
   }
 
@@ -2059,7 +2094,7 @@ export default function InvestmentStage({ investments }) {
           <button
             type="button"
             className={`invest-analysis-toggle${analysisOpen ? ' on' : ''}`}
-            onClick={() => setAnalysisOpen((open) => !open)}
+            onClick={toggleAnalysisOpen}
             aria-pressed={analysisOpen}
           >
             <span className="invest-analysis-toggle-track">
@@ -2108,6 +2143,14 @@ export default function InvestmentStage({ investments }) {
                   />
                   {activeChartId === p.id && MARKET_ASSET_KINDS.has(p.kind) && (
                     <StockChartPanel product={p} onClose={() => setActiveChartId(null)} />
+                  )}
+                  {activeChartId === p.id && INTEREST_DETAIL_KINDS.has(p.kind) && (
+                    <InterestDetailPanel
+                      product={p}
+                      today={today}
+                      rates={rates}
+                      onClose={() => setActiveChartId(null)}
+                    />
                   )}
                 </Fragment>
               )
@@ -2746,6 +2789,20 @@ function daysUntilMaturity(dateStr, months) {
   return Math.round((maturity - today) / (1000 * 60 * 60 * 24))
 }
 
+function maturityDateLabel(dateStr, months) {
+  const M = Number(months) || 0
+  if (!dateStr || M <= 0) return '-'
+  const [y, m, d] = String(dateStr).split('-').map(Number)
+  if (!y || !m) return '-'
+  const maturity = new Date(y, (m || 1) - 1 + M, d || 1)
+  if (Number.isNaN(maturity.getTime())) return '-'
+  return [
+    maturity.getFullYear(),
+    String(maturity.getMonth() + 1).padStart(2, '0'),
+    String(maturity.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 function ProductCard({
   product: p,
   today,
@@ -2771,7 +2828,9 @@ function ProductCard({
     p.kind === '주식' || p.kind === '비트코인' || p.kind === '환율'
       ? quoteStatus || { state: 'idle', text: p.kind === '환율' || quoteSymbolForProduct(p) ? '대기' : '코드 없음' }
       : null
-  const clickable = MARKET_ASSET_KINDS.has(p.kind)
+  const clickable = MARKET_ASSET_KINDS.has(p.kind) || INTEREST_DETAIL_KINDS.has(p.kind)
+  const clickLabel = MARKET_ASSET_KINDS.has(p.kind) ? '시세 그래프' : '상세 정보'
+  const stockStatus = p.kind === '주식' ? status : null
   const missingFx = p.kind === '주식' && m.currency !== 'KRW' && !m.exchangeRate
 
   let valueText = formatKRW(m.current)
@@ -2803,7 +2862,6 @@ function ProductCard({
         profit={m.profit}
         costForPct={m.cost}
         showPct={m.cost > 0}
-        label={`납입 ${formatKRW(m.cost)}`}
       />
     )
     metaNode = (
@@ -2891,7 +2949,7 @@ function ProductCard({
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
       aria-expanded={clickable ? selected : undefined}
-      aria-label={clickable ? `${p.name} 시세 그래프 ${selected ? '닫기' : '보기'}` : undefined}
+      aria-label={clickable ? `${p.name} ${clickLabel} ${selected ? '닫기' : '보기'}` : undefined}
       draggable
       onClick={clickable ? onClick : undefined}
       onKeyDown={(e) => {
@@ -2909,9 +2967,20 @@ function ProductCard({
       onTouchStart={onTouchStart}
     >
       <div className="invest-card-head">
-        <span className="invest-kind-chip">{p.kind}</span>
+        <span
+          className={`invest-kind-chip${stockStatus ? ' has-quote-status' : ''}`}
+          title={stockStatus ? `시세 ${stockStatus.text}` : undefined}
+        >
+          {p.kind}
+          {stockStatus && (
+            <span
+              className={`quote-status-dot ${stockStatus.state}`}
+              aria-hidden="true"
+            />
+          )}
+        </span>
         <div className="invest-card-tools">
-          {status && (
+          {status && p.kind !== '주식' && (
             <span className={`quote-badge ${status.state}`}>{status.text}</span>
           )}
           <button
@@ -2949,6 +3018,113 @@ function ProductCard({
       </div>
 
       {metaNode && <div className="invest-card-meta">{metaNode}</div>}
+    </div>
+  )
+}
+
+function InterestDetailPanel({ product: p, today, rates, onClose }) {
+  const color = p.color || INVEST_META[p.kind].color
+  const m = productMetrics(p, today, rates)
+  const isDeposit = p.kind === '예금'
+  const totalRounds = isDeposit ? m.months : m.totalRounds
+  const progressValue = isDeposit ? m.elapsed : m.round
+  const maturityCost = isDeposit ? m.cost : m.monthly * m.totalRounds
+  const maturityReturnPct = maturityCost > 0 ? (m.maturityProfit / maturityCost) * 100 : 0
+  const currentReturnPct = m.cost > 0 ? (m.profit / m.cost) * 100 : 0
+  const dday = daysUntilMaturity(p.date, totalRounds)
+  const maturityStatus =
+    progressValue >= totalRounds
+      ? '만기 도달'
+      : dday != null && dday >= 0
+        ? `만기까지 ${dday.toLocaleString('ko-KR')}일`
+        : dday != null
+          ? '만기일 지남'
+          : '만기일 확인 필요'
+  const maturityDate = maturityDateLabel(p.date, totalRounds)
+
+  const stats = isDeposit
+    ? [
+        { label: '예치 원금', value: formatKRWExact(m.cost) },
+        { label: '현재 평가액', value: formatKRWExact(m.current) },
+        { label: '만기 수령금액', value: formatKRWExact(m.maturity), primary: true },
+      ]
+    : [
+        { label: '현재 납입금', value: formatKRWExact(m.cost) },
+        { label: '총 납입 예정액', value: formatKRWExact(maturityCost) },
+        { label: '만기 수령금액', value: formatKRWExact(m.maturity), primary: true },
+      ]
+
+  const rows = isDeposit
+    ? [
+        ['가입일', p.date || '-'],
+        ['만기일', maturityDate],
+        ['기간', `${m.elapsed}/${m.months}개월`],
+        ['연이율', `${formatRate(p.rate)}%`],
+        ['이자 방식', p.method || '단리'],
+        ['현재 이자', signedKRWExact(m.profit)],
+        ['현재 수익률', `${currentReturnPct >= 0 ? '+' : ''}${currentReturnPct.toFixed(2)}%`],
+        ['만기 이자', signedKRWExact(m.maturityProfit)],
+        ['만기 수익률', `${maturityReturnPct >= 0 ? '+' : ''}${maturityReturnPct.toFixed(2)}%`],
+      ]
+    : [
+        ['시작일', p.date || '-'],
+        ['만기일', maturityDate],
+        ['납입 회차', `${m.round}/${m.totalRounds}회차`],
+        ['남은 납입', `${Math.max(0, m.totalRounds - m.round)}회`],
+        ['연이율', `${formatRate(p.rate)}%`],
+        ['이자 방식', p.method || '단리'],
+        ['월 납입액', formatKRWExact(m.monthly)],
+        ['현재 평가액', formatKRWExact(m.current)],
+        ['총 납입 예정액', formatKRWExact(maturityCost)],
+        ['현재 이자', signedKRWExact(m.profit)],
+        ['만기 이자', signedKRWExact(m.maturityProfit)],
+        ['현재 수익률', `${currentReturnPct >= 0 ? '+' : ''}${currentReturnPct.toFixed(2)}%`],
+        ['만기 수익률', `${maturityReturnPct >= 0 ? '+' : ''}${maturityReturnPct.toFixed(2)}%`],
+      ]
+
+  return (
+    <div className="invest-interest-detail-card" style={{ '--accent': color }}>
+      <div className="invest-interest-detail-head">
+        <div>
+          <div className="invest-stock-chart-kicker">{p.kind} 상세</div>
+          <h3>{p.name}</h3>
+          <p className="invest-interest-detail-sub">{maturityStatus}</p>
+        </div>
+        <button className="icon-btn" onClick={onClose} aria-label="상세 정보 닫기" title="닫기">
+          ×
+        </button>
+      </div>
+
+      <div className="invest-interest-detail-stats">
+        {stats.map((stat) => (
+          <div
+            className={`invest-interest-detail-stat${stat.primary ? ' primary' : ''}`}
+            key={stat.label}
+          >
+            <span>{stat.label}</span>
+            <strong className={stat.tone || ''}>{stat.value}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="invest-interest-detail-progress">
+        <div>
+          <span>{isDeposit ? '예치 기간' : '납입 진행'}</span>
+          <b>{isDeposit ? `${m.elapsed}/${m.months}개월` : `${m.round}/${m.totalRounds}회차`}</b>
+        </div>
+        <ProgressBar value={progressValue} total={totalRounds} accent={color} />
+      </div>
+
+      <div className="invest-interest-detail-rows">
+        {rows.map(([label, value]) => (
+          <div className="invest-interest-detail-row" key={label}>
+            <span>{label}</span>
+            <b>{value}</b>
+          </div>
+        ))}
+      </div>
+
+      {p.memo && <div className="invest-interest-detail-memo">{p.memo}</div>}
     </div>
   )
 }
