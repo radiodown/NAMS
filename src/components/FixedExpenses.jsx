@@ -1020,10 +1020,21 @@ function BundleWidget({
   onUngroup,
 }) {
   const { category, color, items: members, subtotal } = unit
+  const [popoverOffset, setPopoverOffset] = useState(0)
   const share = totalMonthly > 0 ? Math.round((subtotal / totalMonthly) * 100) : 0
   const shareLabel = subtotal > 0 && share === 0 ? '<1%' : `${share}%`
   const barWidth = maxUnitAmount > 0 ? Math.min((subtotal / maxUnitAmount) * 100, 100) : 0
   const paidCount = members.filter((member) => paidStatusById[member.id]).length
+
+  function positionPopover(event) {
+    if (typeof window === 'undefined') return
+    const rect = event.currentTarget.getBoundingClientRect()
+    const viewportPadding = 16
+    const popoverWidth = Math.min(300, window.innerWidth - viewportPadding * 2)
+    const maxLeft = window.innerWidth - viewportPadding - popoverWidth
+    const nextLeft = Math.max(viewportPadding, Math.min(rect.left, maxLeft))
+    setPopoverOffset(nextLeft - rect.left)
+  }
 
   return (
     <div
@@ -1031,7 +1042,9 @@ function BundleWidget({
         paidCount > 0 ? ' is-paid' : ''
       }`}
       data-unit-key={unit.key}
-      style={{ '--accent': color }}
+      style={{ '--accent': color, '--bundle-popover-offset': `${popoverOffset}px` }}
+      onMouseEnter={positionPopover}
+      onFocus={positionPopover}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}

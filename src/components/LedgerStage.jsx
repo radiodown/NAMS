@@ -1414,6 +1414,8 @@ export default function LedgerStage({
                             value={inlineDraft.category}
                             options={categoryList}
                             placeholder="카테고리 입력"
+                            className="ledger-inline-input"
+                            ariaLabel="카테고리"
                             onChange={(value) => setInline('category', value)}
                           />
                         ) : (

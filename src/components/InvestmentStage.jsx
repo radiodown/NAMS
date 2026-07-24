@@ -631,14 +631,12 @@ export default function InvestmentStage({ investments }) {
       {
         id: 'stable',
         title: '예금 · 적금 · 현금자산',
-        desc: '원금과 현금 흐름 중심',
         color: '#0f766e',
         sectionKind: STABLE_ASSET_KINDS,
       },
       {
         id: 'market',
         title: '주식 · 비트코인',
-        desc: '가격 변동 자산',
         color: '#d97706',
         sectionKind: MARKET_ASSET_KINDS,
       },
@@ -1535,40 +1533,66 @@ export default function InvestmentStage({ investments }) {
   const savingsPreview = form.kind === '적금' ? savingsPreviewFromForm(form, today) : null
   const taxBenefitOptions = taxBenefitOptionsForKind(form.kind)
   const activeTaxBenefit = normalizeInvestmentTaxBenefit(form.kind, form.taxBenefit)
+  const portfolioReturnRate = totals.cost > 0 ? (totals.profit / totals.cost) * 100 : 0
 
   return (
-    <div className="stage" style={{ '--accent': INVEST_META[form.kind].color }}>
-      <div className="stat-grid">
-        <div className="stat-card">
-          <div className="label">투자 원금 합계</div>
-          <div className="value">
-            {formatKRW(totals.cost)}
-            <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="cost" />
+    <div className="stage investment-stage" style={{ '--accent': INVEST_META[form.kind].color }}>
+      <section className="invest-overview" aria-label="투자 포트폴리오 요약">
+        <div className="invest-overview-orb" aria-hidden="true" />
+        <div className="invest-overview-main">
+          <div className="invest-overview-kicker">
+            <span className="invest-overview-live" aria-hidden="true" />
+            포트폴리오 현황
+            <span className="invest-overview-count">{items.length}개 자산</span>
           </div>
-        </div>
-        <div className="stat-card">
-          <div className="label">현재 평가액</div>
-          <div className="value accent">
-            {formatKRW(totals.current)}
-            <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="current" />
+          <div className="invest-overview-label">총 평가자산</div>
+          <div className="invest-overview-value">{formatKRW(totals.current)}</div>
+          <div className="invest-overview-change">
+            <span className={profitClass(totals.profit)}>{signedKRW(totals.profit)}</span>
+            <span className={profitClass(totals.profit)}>
+              {portfolioReturnRate >= 0 ? '+' : ''}
+              {portfolioReturnRate.toFixed(2)}%
+            </span>
+            <span className="invest-overview-change-label">원금 대비</span>
           </div>
+          <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="current" />
         </div>
-        <div className="stat-card">
-          <div className="label">평가손익</div>
-          <div className={`value ${profitClass(totals.profit)}`}>
-            {signedKRW(totals.profit)}
-            {totals.cost > 0 && (
-              <span className="value-sub">
-                {' '}
-                ({totals.profit >= 0 ? '+' : ''}
-                {((totals.profit / totals.cost) * 100).toFixed(2)}%)
+
+        <div className="invest-overview-side">
+          <div className="invest-overview-metrics">
+            <div className="invest-overview-metric">
+              <div className="invest-overview-metric-label">
+                <span className="invest-overview-metric-icon cost" aria-hidden="true" />
+                투자 원금
+              </div>
+              <strong>{formatKRW(totals.cost)}</strong>
+              <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="cost" />
+            </div>
+            <div className="invest-overview-metric">
+              <div className="invest-overview-metric-label">
+                <span className="invest-overview-metric-icon profit" aria-hidden="true" />
+                평가손익
+              </div>
+              <strong className={profitClass(totals.profit)}>{signedKRW(totals.profit)}</strong>
+              <span className="invest-overview-metric-caption">
+                수익률 {portfolioReturnRate >= 0 ? '+' : ''}
+                {portfolioReturnRate.toFixed(2)}%
               </span>
-            )}
-            <InvestStatBreakdown breakdown={marketReport.assetBreakdown} field="profit" signed />
+            </div>
+          </div>
+          <div className="invest-overview-footer">
+            <div className="invest-overview-risk">
+              <span>포트폴리오 위험도</span>
+              <b className={`invest-risk-pill${items.length > 0 ? ` ${marketReport.rating.tone}` : ''}`}>
+                {items.length > 0 ? marketReport.rating.label : '분석 전'}
+              </b>
+            </div>
+            <div className="invest-overview-fx">
+              <RepresentativeFXCard />
+            </div>
           </div>
         </div>
-        <RepresentativeFXCard />
-      </div>
+      </section>
 
       {formOpen && (
         <div className="fixed-modal-backdrop" onClick={cancelEdit}>
@@ -2019,10 +2043,11 @@ export default function InvestmentStage({ investments }) {
       )}
 
       <div className="invest-toolbar">
-        <div>
-          <h2 className="section-title">투자 위젯</h2>
-          <div className="invest-summary">
-            {items.length}개 상품 · 평가액 {formatKRW(totals.current)}
+        <div className="invest-toolbar-copy">
+          <div className="invest-toolbar-kicker">ASSET COLLECTION</div>
+          <div className="invest-toolbar-title-row">
+            <h2 className="section-title">보유 자산</h2>
+            <span>{items.length}</span>
           </div>
         </div>
         <div className="invest-toolbar-actions">
@@ -2035,10 +2060,11 @@ export default function InvestmentStage({ investments }) {
             <span className="invest-analysis-toggle-track">
               <span className="invest-analysis-toggle-thumb" />
             </span>
-            <span>분석</span>
+            <span>포트폴리오 분석</span>
           </button>
           <button className="invest-add-btn" onClick={openAdd} aria-label="투자 위젯 추가">
             <PlusIcon />
+            <span>자산 추가</span>
           </button>
         </div>
       </div>
@@ -2100,17 +2126,31 @@ export default function InvestmentStage({ investments }) {
                     <div className="invest-section-headline">
                       <div className="invest-section-title">
                         <span className="invest-dot" style={{ background: section.color }} />
-                        {section.title}
+                        <div>
+                          <span className="invest-section-kicker">
+                            {section.id === 'stable' ? 'STABLE ASSETS' : 'MARKET ASSETS'}
+                          </span>
+                          <h3>{section.title}</h3>
+                        </div>
                         <span className="invest-section-count">{section.items.length}</span>
                       </div>
-                      <div className="invest-section-desc">{section.desc}</div>
                     </div>
                     <div className="invest-section-meta">
-                      {section.monthlyOutflow > 0 && (
-                        <span className="invest-section-monthly">월 납입 {formatKRW(section.monthlyOutflow)}</span>
-                      )}
-                      <span className="invest-section-total">{formatKRW(section.total)}</span>
+                      <span className="invest-section-total">
+                        {formatKRW(section.total)}
+                      </span>
+                      <span className="invest-section-weight">
+                        {totals.current > 0 ? ((section.total / totals.current) * 100).toFixed(1) : '0.0'}%
+                      </span>
                     </div>
+                  </div>
+
+                  <div className="invest-section-track" aria-hidden="true">
+                    <span
+                      style={{
+                        width: `${totals.current > 0 ? Math.min(100, (section.total / totals.current) * 100) : 0}%`,
+                      }}
+                    />
                   </div>
 
                   <div className="invest-widget-grid">
@@ -2506,9 +2546,34 @@ function InvestmentGroupCard({
         onDrop={onDrop}
       >
         <div className="invest-card-head">
-          <span className="invest-card-name invest-folder-tab">
-            <b>{group.items.length}개</b>
-          </span>
+          <div className="invest-card-identity invest-group-identity">
+            <span className="invest-card-name invest-folder-tab">
+              <span>GROUP</span>
+              <b>{group.items.length}개</b>
+            </span>
+            {editing ? (
+              <input
+                ref={inputRef}
+                className="invest-group-name-input"
+                value={draft}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commit()
+                  if (e.key === 'Escape') {
+                    setDraft(group.name)
+                    setEditing(false)
+                  }
+                }}
+                maxLength={24}
+              />
+            ) : (
+              <div className="invest-group-name">
+                <strong>{group.name}</strong>
+              </div>
+            )}
+          </div>
           <div className="invest-card-tools">
             <button
               type="button"
@@ -2537,38 +2602,22 @@ function InvestmentGroupCard({
           </div>
         </div>
         <div className="invest-widget-body">
-          {editing ? (
-            <input
-              ref={inputRef}
-              className="invest-group-name-input"
-              value={draft}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commit}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commit()
-                if (e.key === 'Escape') {
-                  setDraft(group.name)
-                  setEditing(false)
-                }
-              }}
-              maxLength={24}
-            />
-          ) : (
-            <div className="invest-group-name">
-              <strong>{group.name}</strong>
+          <div className="invest-widget-figure">
+            <span>그룹 평가액</span>
+            <div className="invest-widget-value">{formatKRW(group.total)}</div>
+          </div>
+          <div className="invest-widget-profit-row">
+            <span>평가손익</span>
+            <div className={`invest-widget-profit ${profitClass(group.profit)}`}>
+              {signedKRW(group.profit)}
+              {group.cost > 0 && (
+                <span>
+                  {' '}
+                  ({returnPct >= 0 ? '+' : ''}
+                  {returnPct.toFixed(2)}%)
+                </span>
+              )}
             </div>
-          )}
-          <div className="invest-widget-value">{formatKRW(group.total)}</div>
-          <div className={`invest-widget-profit ${profitClass(group.profit)}`}>
-            {signedKRW(group.profit)}
-            {group.cost > 0 && (
-              <span>
-                {' '}
-                ({returnPct >= 0 ? '+' : ''}
-                {returnPct.toFixed(2)}%)
-              </span>
-            )}
           </div>
           <div className="invest-folder-preview" aria-label={memberText || '그룹 항목 없음'}>
             {previewItems.length > 0 ? (
@@ -2662,19 +2711,29 @@ function InvestmentGroupFolder({ group, accent, today, rates, onClose }) {
   )
 }
 
-function ProfitPill({ profit, returnPct, label, showPct = true, costForPct = 0 }) {
-  const tone = profit > 0 ? 'pos' : profit < 0 ? 'neg' : 'flat'
+function ProfitPill({
+  profit,
+  returnPct,
+  label,
+  showPct = true,
+  costForPct = 0,
+  compactAmount = false,
+}) {
+  const amount = Number(profit)
+  if (!Number.isFinite(amount) || amount === 0) return null
+
+  const tone = amount > 0 ? 'pos' : 'neg'
   const pct = Number.isFinite(returnPct)
     ? returnPct
     : costForPct > 0
-      ? (profit / costForPct) * 100
+      ? (amount / costForPct) * 100
       : null
   const strong = pct != null && Math.abs(pct) >= 10 ? ' strong' : ''
   const arrow = tone === 'pos' ? '▲' : tone === 'neg' ? '▼' : ''
   return (
     <span className={`invest-profit-pill ${tone}${strong}`}>
       {arrow && <span className="invest-profit-arrow" aria-hidden="true">{arrow}</span>}
-      <b>{signedKRW(profit)}</b>
+      <b>{compactAmount ? compactAssetAmount(Math.abs(amount)) : signedKRW(amount)}</b>
       {showPct && pct != null && (
         <i>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</i>
       )}
@@ -2747,6 +2806,8 @@ function ProductCard({
   const clickable = MARKET_ASSET_KINDS.has(p.kind) || INTEREST_DETAIL_KINDS.has(p.kind)
   const clickLabel = MARKET_ASSET_KINDS.has(p.kind) ? '시세 그래프' : '상세 정보'
   const inlineQuoteStatus = p.kind === '주식' || p.kind === '비트코인' ? status : null
+  const marketCompact = p.kind === '주식' || p.kind === '비트코인'
+  const stableCompact = STABLE_ASSET_KINDS.has(p.kind)
   const missingFx = p.kind === '주식' && m.currency !== 'KRW' && !m.exchangeRate
 
   let valueText = formatKRW(m.current)
@@ -2763,7 +2824,12 @@ function ProductCard({
           ? `D-${dday}`
           : null
     pillNode = (
-      <ProfitPill profit={m.profit} costForPct={m.cost} showPct={m.cost > 0} />
+      <ProfitPill
+        profit={m.profit}
+        costForPct={m.cost}
+        showPct={false}
+        compactAmount
+      />
     )
     metaNode = (
       <>
@@ -2777,7 +2843,8 @@ function ProductCard({
       <ProfitPill
         profit={m.profit}
         costForPct={m.cost}
-        showPct={m.cost > 0}
+        showPct={false}
+        compactAmount
       />
     )
     metaNode = (
@@ -2789,8 +2856,18 @@ function ProductCard({
         )}
       </>
     )
+    if (m.monthly > 0) {
+      valueSub = <span className="invest-value-sub">월 {formatKRW(m.monthly)}</span>
+    }
   } else if (p.kind === '비트코인') {
-    pillNode = <ProfitPill profit={m.profit} returnPct={m.returnPct} />
+    pillNode = (
+      <ProfitPill
+        profit={m.profit}
+        returnPct={m.returnPct}
+        showPct={false}
+        compactAmount
+      />
+    )
     valueSub = (
       <span className="invest-value-sub">
         {m.quantity.toLocaleString('ko-KR', { maximumFractionDigits: 8 })} BTC
@@ -2801,7 +2878,12 @@ function ProductCard({
     )
   } else if (p.kind === '자산') {
     pillNode = (
-      <ProfitPill profit={m.profit} costForPct={m.cost} showPct={m.cost > 0} />
+      <ProfitPill
+        profit={m.profit}
+        costForPct={m.cost}
+        showPct={false}
+        compactAmount
+      />
     )
     metaNode = (
       <>
@@ -2835,7 +2917,14 @@ function ProductCard({
       </>
     )
   } else {
-    pillNode = <ProfitPill profit={m.profit} returnPct={m.returnPct} />
+    pillNode = (
+      <ProfitPill
+        profit={m.profit}
+        returnPct={m.returnPct}
+        showPct={false}
+        compactAmount
+      />
+    )
     valueSub = (
       <span className="invest-value-sub">
         현재 {formatCurrency(m.currentPrice, m.currency)}
@@ -2855,7 +2944,7 @@ function ProductCard({
 
   return (
     <div
-      className={`invest-card${clickable ? ' chart-clickable' : ''}${editing ? ' editing' : ''}${
+      className={`invest-card${marketCompact ? ' market-compact' : ''}${stableCompact ? ' stable-compact' : ''}${clickable ? ' chart-clickable' : ''}${editing ? ' editing' : ''}${
         selected ? ' selected' : ''
       }${dragging ? ' dragging' : ''}${
         dropTarget ? ' drop-target' : ''
@@ -2883,18 +2972,29 @@ function ProductCard({
       onTouchStart={onTouchStart}
     >
       <div className="invest-card-head">
-        <span
-          className={`invest-kind-chip${inlineQuoteStatus ? ' has-quote-status' : ''}`}
-          title={inlineQuoteStatus ? `시세 ${inlineQuoteStatus.text}` : undefined}
-        >
-          {p.kind}
-          {inlineQuoteStatus && (
-            <span
-              className={`quote-status-dot ${inlineQuoteStatus.state}`}
-              aria-hidden="true"
-            />
+        <div className="invest-card-identity">
+          <span
+            className={`invest-kind-chip${inlineQuoteStatus ? ' has-quote-status' : ''}`}
+            title={
+              marketCompact
+                ? `${p.name} · 시세 ${inlineQuoteStatus?.text || '대기'}`
+                : inlineQuoteStatus
+                  ? `시세 ${inlineQuoteStatus.text}`
+                  : undefined
+            }
+          >
+            {p.kind}
+            {inlineQuoteStatus && (
+              <span
+                className={`quote-status-dot ${inlineQuoteStatus.state}`}
+                aria-hidden="true"
+              />
+            )}
+          </span>
+          {p.kind !== '비트코인' && (
+            <div className="invest-card-name" title={p.name}>{p.name}</div>
           )}
-        </span>
+        </div>
         <div className="invest-card-tools">
           {status && !inlineQuoteStatus && (
             <span className={`quote-badge ${status.state}`}>{status.text}</span>
@@ -2925,15 +3025,35 @@ function ProductCard({
       </div>
 
       <div className="invest-card-body">
-        <div className="invest-card-name" title={p.name}>{p.name}</div>
-        <div className="invest-card-value">
-          <strong>{valueText}</strong>
-          {valueSub}
+        <div className="invest-card-figure">
+          <span className="invest-card-value-label">
+            {marketCompact || stableCompact
+              ? pillNode
+              : p.kind === '환율'
+                ? '적용 환율'
+                : '현재 평가액'}
+          </span>
+          <div className="invest-card-value-row">
+            <div className="invest-card-value-main">
+              <div className="invest-card-value">
+                <strong>{valueText}</strong>
+              </div>
+              {stableCompact && valueSub}
+            </div>
+          </div>
+          {!marketCompact && !stableCompact && valueSub}
         </div>
-        {pillNode}
+        {pillNode && !marketCompact && !stableCompact && (
+          <div className="invest-card-profit-row">
+            <span>{missingFx ? '상태' : '평가손익'}</span>
+            {pillNode}
+          </div>
+        )}
       </div>
 
-      {metaNode && <div className="invest-card-meta">{metaNode}</div>}
+      {metaNode && !marketCompact && !stableCompact && (
+        <div className="invest-card-meta">{metaNode}</div>
+      )}
     </div>
   )
 }

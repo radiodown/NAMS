@@ -18,7 +18,6 @@ export const STAGE_TABS = [
   '그래프',
   '투자',
   '연말정산',
-  '모의투자',
 ]
 
 const DEFAULT_VISIBLE_STAGES = new Set([

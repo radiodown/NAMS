@@ -779,6 +779,30 @@ export default function ExpenseManagementStage({
                     <span className={`method-usage-chevron${isSelected ? ' open' : ''}`} aria-hidden="true">
                       ›
                     </span>
+                    <span className="method-usage-hover-card" aria-hidden="true">
+                      <span className="method-usage-hover-title">
+                        <b>{method.name}</b>
+                        <small>{methodMeta || '결제수단 정보 없음'}</small>
+                      </span>
+                      <span className="method-usage-hover-metrics">
+                        <span>
+                          <small>사용</small>
+                          <b>{formatKRW(method.amount)}</b>
+                        </span>
+                        <span>
+                          <small>비중</small>
+                          <b>{pct(method.amount, total).toFixed(0)}%</b>
+                        </span>
+                        <span>
+                          <small>건수</small>
+                          <b>{method.count || 0}건</b>
+                        </span>
+                        <span>
+                          <small>최근</small>
+                          <b>{method.latestDate || '-'}</b>
+                        </span>
+                      </span>
+                    </span>
                       </button>
                       {isSelected && (
                         <div className="method-usage-detail">

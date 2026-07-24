@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLedger } from './lib/useLedger'
 import { useFixedExpenses } from './lib/useFixedExpenses'
 import { useFixedIncomes } from './lib/useFixedIncomes'
 import { useInvestments } from './lib/useInvestments'
-import { useMockInvestment } from './lib/useMockInvestment'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
 import { formatKRW, todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
-import { MOCK_INVEST_COLOR } from './lib/mockInvestment'
 import {
   fixedExpenseEntriesForMonth,
   fixedExpenseEntriesFromRecords,
@@ -18,7 +16,6 @@ import {
 import { reconcileFixedExpenseEntries } from './lib/fixedExpenseSettlement'
 import LedgerStage from './components/LedgerStage'
 import InvestmentStage from './components/InvestmentStage'
-import MockInvestmentStage from './components/MockInvestmentStage'
 import ExpenseManagementStage from './components/ExpenseManagementStage'
 import IncomeManagementStage from './components/IncomeManagementStage'
 import SummaryStage from './components/SummaryStage'
@@ -58,7 +55,6 @@ const TAB_COLOR = {
   지출: STAGE_META.지출.color,
   '지출 관리': STAGE_META.지출.color,
   투자: INVEST_COLOR,
-  모의투자: MOCK_INVEST_COLOR,
   그래프: SUMMARY_COLOR,
   연말정산: TAX_COLOR,
 }
@@ -66,6 +62,8 @@ const TAB_COLOR = {
 const BANKSALAD_XLSX_ACCEPT =
   '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const LOCAL_IMPORT_ACCEPT = `${BACKUP_ACCEPT},${BANKSALAD_XLSX_ACCEPT}`
+const STAGE_LONG_PRESS_MS = 520
+const STAGE_LONG_PRESS_MOVE_CANCEL = 12
 
 function shiftMonth(month, offset) {
   const [year, monthNum] = month.split('-').map(Number)
@@ -87,7 +85,6 @@ export default function App() {
   const fixedIncome = useFixedIncomes()
   const fixed = useFixedExpenses()
   const invest = useInvestments()
-  const mockInvest = useMockInvestment()
   const categoryStore = useCategories()
   const paymentMethods = usePaymentMethods()
   const { entries } = ledger
@@ -104,6 +101,28 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [dragStage, setDragStage] = useState('')
   const [theme, setTheme] = useStoredSlice(STORE_PATHS.settings.theme, 'light')
+  const stageLongPressRef = useRef({
+    timer: 0,
+    suppressTimer: 0,
+    startX: 0,
+    startY: 0,
+    suppressClick: false,
+  })
+  const cancelStageLongPress = useCallback(() => {
+    if (stageLongPressRef.current.timer) {
+      window.clearTimeout(stageLongPressRef.current.timer)
+      stageLongPressRef.current.timer = 0
+    }
+  }, [])
+  useEffect(
+    () => () => {
+      cancelStageLongPress()
+      if (stageLongPressRef.current.suppressTimer) {
+        window.clearTimeout(stageLongPressRef.current.suppressTimer)
+      }
+    },
+    [cancelStageLongPress]
+  )
   const currentMonth = todayStr().slice(0, 7)
   const previousMonth = shiftMonth(currentMonth, -1)
   const transactionEntries = useMemo(
@@ -294,13 +313,12 @@ export default function App() {
       수입: 0,
       지출: 0,
       투자: invest.items.length,
-      모의투자: mockInvest.portfolio.trades.length,
     }
     transactionEntries.forEach((e) => {
       if (e.type === '수입' || e.type === '지출') c[e.type] += 1
     })
     return c
-  }, [transactionEntries, invest.items, mockInvest.portfolio.trades.length])
+  }, [transactionEntries, invest.items])
 
   const visibleCount = stageConfig.filter((stage) => stage.visible).length
 
@@ -454,7 +472,51 @@ export default function App() {
 
   function openStageSettings(e) {
     e.preventDefault()
+    cancelStageLongPress()
     setStageOpen(true)
+  }
+
+  function startStageLongPress(e) {
+    if (e.touches.length !== 1) return
+    cancelStageLongPress()
+    const touch = e.touches[0]
+    stageLongPressRef.current.startX = touch.clientX
+    stageLongPressRef.current.startY = touch.clientY
+    stageLongPressRef.current.timer = window.setTimeout(() => {
+      stageLongPressRef.current.timer = 0
+      stageLongPressRef.current.suppressClick = true
+      if (stageLongPressRef.current.suppressTimer) {
+        window.clearTimeout(stageLongPressRef.current.suppressTimer)
+      }
+      stageLongPressRef.current.suppressTimer = window.setTimeout(() => {
+        stageLongPressRef.current.suppressClick = false
+        stageLongPressRef.current.suppressTimer = 0
+      }, 800)
+      setStageOpen(true)
+    }, STAGE_LONG_PRESS_MS)
+  }
+
+  function moveStageLongPress(e) {
+    if (!stageLongPressRef.current.timer || e.touches.length !== 1) return
+    const touch = e.touches[0]
+    const movedX = Math.abs(touch.clientX - stageLongPressRef.current.startX)
+    const movedY = Math.abs(touch.clientY - stageLongPressRef.current.startY)
+    if (movedX > STAGE_LONG_PRESS_MOVE_CANCEL || movedY > STAGE_LONG_PRESS_MOVE_CANCEL) {
+      cancelStageLongPress()
+    }
+  }
+
+  function endStageLongPress() {
+    cancelStageLongPress()
+  }
+
+  function selectStageTab(e, nextTab) {
+    if (stageLongPressRef.current.suppressClick) {
+      e.preventDefault()
+      stageLongPressRef.current.suppressClick = false
+      return
+    }
+    setTab(nextTab)
   }
 
   function toggleTheme() {
@@ -548,13 +610,20 @@ export default function App() {
         </div>
       </header>
 
-      <nav className="tabs" onContextMenu={openStageSettings}>
+      <nav
+        className="tabs"
+        onContextMenu={openStageSettings}
+        onTouchStart={startStageLongPress}
+        onTouchMove={moveStageLongPress}
+        onTouchEnd={endStageLongPress}
+        onTouchCancel={endStageLongPress}
+      >
         {visibleTabs.map((t) => (
           <button
             key={t}
             className={`tab${tab === t ? ' active' : ''}`}
             style={tab === t ? { '--tab-color': TAB_COLOR[t] } : undefined}
-            onClick={() => setTab(t)}
+            onClick={(e) => selectStageTab(e, t)}
           >
             {t}
             {counts[t] != null && <span className="count">{counts[t]}</span>}
@@ -662,8 +731,6 @@ export default function App() {
           <SummaryStage entries={entriesWithCurrentFixed} investments={invest.items} />
         ) : tab === '투자' ? (
           <InvestmentStage investments={invest} />
-        ) : tab === '모의투자' ? (
-          <MockInvestmentStage mockInvest={mockInvest} />
         ) : tab === '수입 관리' ? (
           <IncomeManagementStage
             entries={transactionEntries}

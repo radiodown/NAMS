@@ -3,7 +3,10 @@
     "allow": [
       "Bash(curl -sf http://127.0.0.1:4174)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://127.0.0.1:4174)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(netstat -ano)",
+      "PowerShell(Stop-Process -Id 24304 -Force)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"ProcessId=24304\" -ErrorAction SilentlyContinue)"
     ]
   }
 }
