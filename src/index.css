@@ -3667,29 +3667,6 @@ td.memo {
   grid-column: 1 / -1;
 }
 
-.invest-report-card-portfolio {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: minmax(0, 0.95fr) minmax(260px, 1.05fr);
-  align-items: start;
-  gap: 0 12px;
-}
-
-.invest-report-card-portfolio h4 {
-  grid-column: 1 / -1;
-}
-
-.invest-report-card-portfolio .invest-report-summary,
-.invest-report-card-portfolio .invest-report-notes {
-  grid-column: 1;
-}
-
-.invest-report-card-portfolio .invest-report-actions {
-  grid-column: 2;
-  grid-row: 2 / span 2;
-  margin-top: 0;
-}
-
 .invest-report-card h4 {
   margin: 0 0 10px;
   font-size: 14px;
@@ -3983,8 +3960,7 @@ td.memo {
   color: var(--muted);
 }
 
-.invest-risk-list,
-.invest-report-notes {
+.invest-risk-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -4033,46 +4009,6 @@ td.memo {
   color: var(--text);
   font-size: 13px;
   font-weight: 900;
-}
-
-.invest-report-notes span {
-  display: block;
-  padding: 8px 9px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.invest-report-actions {
-  display: grid;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.invest-report-action {
-  padding: 9px;
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
-  background: var(--surface-2);
-}
-
-.invest-report-action strong {
-  display: block;
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.invest-report-action span {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.4;
 }
 
 .invest-add-btn {
@@ -7336,22 +7272,6 @@ td.memo {
 
   .invest-report-card-wide {
     grid-row: auto;
-  }
-
-  .invest-report-card-portfolio {
-    grid-template-columns: 1fr;
-  }
-
-  .invest-report-card-portfolio h4,
-  .invest-report-card-portfolio .invest-report-summary,
-  .invest-report-card-portfolio .invest-report-notes,
-  .invest-report-card-portfolio .invest-report-actions {
-    grid-column: 1;
-  }
-
-  .invest-report-card-portfolio .invest-report-actions {
-    grid-row: auto;
-    margin-top: 10px;
   }
 
   .invest-report-pie-wrap {

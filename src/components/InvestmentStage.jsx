@@ -508,86 +508,9 @@ function buildMarketReport(products, today) {
       : highCount || midCount >= 2
         ? { label: '주의', tone: 'mid' }
         : { label: '양호', tone: 'low' }
-  const best = positions.length ? [...positions].sort((a, b) => b.profit - a.profit)[0] : null
-  const worst = positions.length ? [...positions].sort((a, b) => a.profit - b.profit)[0] : null
   const assetBreakdown = allocation.breakdown
   const safeTotal = allocation.byId.safe?.value || 0
   const safePositions = buildSafeAssetPositions(allocation.byId.safe?.items || [], safeTotal)
-  const variableWeight = allocation.riskWeight + allocation.altWeight
-  const portfolioItems = [...allocation.items].sort((a, b) => b.current - a.current)
-  const topPortfolioAsset = portfolioItems[0] || null
-  const topPortfolioWeight =
-    allocation.total > 0 && topPortfolioAsset ? (topPortfolioAsset.current / allocation.total) * 100 : 0
-  const notes = []
-  if (assetBreakdown.safe.count === 0) {
-    notes.push('예금·적금·현금성 자산이 없어 변동성 완충 자산이 부족합니다.')
-  } else if (allocation.safeWeight >= 70) {
-    notes.push(`안전자산 비중이 ${formatPct(allocation.safeWeight)}로 높아 변동성은 낮지만 기대수익은 제한될 수 있습니다.`)
-  } else if (allocation.safeWeight >= 30 && variableWeight >= 30) {
-    notes.push('안전자산과 변동자산이 함께 있어 포트폴리오 완충 구조가 있습니다.')
-  }
-  if (assetBreakdown.variable.count === 0) {
-    notes.push('주식·비트코인·대체자산 같은 변동자산은 아직 등록되지 않았습니다.')
-  } else if (variableWeight >= 70) {
-    notes.push(`변동자산 비중이 ${formatPct(variableWeight)}로 높아 시장 변화에 민감합니다.`)
-  } else if (positions.length > 0 && positions.length < 3) {
-    notes.push('시장성 자산 수가 적어 변동자산 내부 분산 효과는 제한적입니다.')
-  }
-  if (topPortfolioWeight >= 35) notes.push(`${topPortfolioAsset?.name || '상위 자산'}이 전체의 ${formatPct(topPortfolioWeight)}입니다.`)
-  if (fxWeight >= 25) notes.push(`외화 자산 비중이 ${formatPct(fxWeight)}입니다.`)
-  if (best) notes.push(`변동자산 수익 기여 1위는 ${best.name}입니다.`)
-  if (worst && worst.profit < 0) notes.push(`변동자산 손실 기여 1위는 ${worst.name}입니다.`)
-  if (notes.length === 0) notes.push('분산이 비교적 안정적입니다.')
-  const actions = []
-  if (topPortfolioWeight >= 50) {
-    actions.push({
-      title: '단일 자산 집중',
-      detail: `${topPortfolioAsset?.name || '상위 자산'} 하나가 전체 포트폴리오의 절반 이상입니다. 안전자산과 변동자산 전체 기준으로 비중 조절을 먼저 보세요.`,
-    })
-  } else if (topPortfolioWeight >= 35) {
-    actions.push({
-      title: '상위 비중 주의',
-      detail: `${topPortfolioAsset?.name || '상위 자산'} 비중이 높은 편입니다. 같은 방향으로 움직이는 자산과 현금성 완충 비중을 함께 확인하세요.`,
-    })
-  } else if (variableWeight >= 70) {
-    actions.push({
-      title: '변동성 완충 확인',
-      detail: `변동자산 비중이 ${formatPct(variableWeight)}입니다. 예금·적금·현금성 자산을 목표 비중으로 둘지 정하면 흔들림을 줄이기 좋습니다.`,
-    })
-  } else if (allocation.safeWeight >= 75) {
-    actions.push({
-      title: '수익 기회 점검',
-      detail: `안전자산 비중이 ${formatPct(allocation.safeWeight)}입니다. 장기 목표가 있다면 일부를 성장자산으로 배분할지 검토해볼 수 있습니다.`,
-    })
-  } else {
-    actions.push({
-      title: '배분 균형 유지',
-      detail: '안전자산과 변동자산이 한쪽으로 크게 쏠리지는 않았습니다. 신규 편입은 목표 비중에서 부족한 쪽을 우선 비교하기 좋습니다.',
-    })
-  }
-  if (fxWeight >= 25) {
-    actions.push({
-      title: '환율 영향 확인',
-      detail: `외화 노출이 ${formatPct(fxWeight)}라 환율 변동이 수익률을 흔들 수 있습니다.`,
-    })
-  }
-  if (lossWeight >= 25 || totalReturnPct < 0) {
-    actions.push({
-      title: '변동자산 손실 점검',
-      detail: `변동자산 안에서 손실 자산 비중은 ${formatPct(lossWeight)}입니다. 전체 자산 여력과 보유 이유를 함께 확인하세요.`,
-    })
-  } else if (best) {
-    actions.push({
-      title: '수익 기여 확인',
-      detail: `${best.name}이 변동자산 수익에 가장 크게 기여합니다. 전체 포트폴리오에서 비중이 과도해졌는지도 함께 보세요.`,
-    })
-  }
-  if (missingFxCount || missingQuoteCount || staleQuoteCount) {
-    actions.push({
-      title: '데이터 보완',
-      detail: '시세나 환율이 비어 있거나 오래된 항목이 있어 분석 정확도가 낮아질 수 있습니다.',
-    })
-  }
 
   return {
     positions,
@@ -610,9 +533,6 @@ function buildMarketReport(products, today) {
     losingCount,
     risks,
     rating,
-    notes,
-    actions,
-    summary: '',
   }
 }
 
@@ -2410,24 +2330,6 @@ function InvestmentReport({ report }) {
                 </div>
                 <strong>{risk.value}</strong>
                 <p>{risk.detail}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="invest-report-card invest-report-card-portfolio">
-          <h4>포트폴리오 평가</h4>
-          {report.summary && <p className="invest-report-summary">{report.summary}</p>}
-          <div className="invest-report-notes">
-            {report.notes.map((note) => (
-              <span key={note}>{note}</span>
-            ))}
-          </div>
-          <div className="invest-report-actions">
-            {report.actions.map((action) => (
-              <div className="invest-report-action" key={action.title}>
-                <strong>{action.title}</strong>
-                <span>{action.detail}</span>
               </div>
             ))}
           </div>
