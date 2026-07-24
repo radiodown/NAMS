@@ -5,7 +5,7 @@ import { useFixedIncomes } from './lib/useFixedIncomes'
 import { useInvestments } from './lib/useInvestments'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
-import { formatKRW, todayStr } from './lib/format'
+import { formatKRW, monthOf, todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
 import {
   fixedExpenseEntriesForMonth,
@@ -190,6 +190,46 @@ export default function App() {
     ],
     [transactionEntries, fixedRecordEntries, currentFixedIncomeEntries, currentFixedEntries]
   )
+  const monthDeletionSummary = useMemo(() => {
+    const summary = {}
+    const ensureMonth = (month) => {
+      if (!summary[month]) {
+        summary[month] = {
+          incomeEntries: 0,
+          expenseEntries: 0,
+          fixedIncomeRecords: 0,
+          fixedExpenseRecords: 0,
+          total: 0,
+        }
+      }
+      return summary[month]
+    }
+
+    transactionEntries.forEach((entry) => {
+      const month = monthOf(entry.date)
+      if (!month) return
+      const bucket = ensureMonth(month)
+      if (entry.type === '수입') bucket.incomeEntries += 1
+      else bucket.expenseEntries += 1
+      bucket.total += 1
+    })
+    fixedIncome.records.forEach((record) => {
+      const month = String(record.month || '')
+      if (!month) return
+      const bucket = ensureMonth(month)
+      bucket.fixedIncomeRecords += 1
+      bucket.total += 1
+    })
+    fixed.records.forEach((record) => {
+      const month = String(record.month || '')
+      if (!month) return
+      const bucket = ensureMonth(month)
+      bucket.fixedExpenseRecords += 1
+      bucket.total += 1
+    })
+
+    return summary
+  }, [fixed.records, fixedIncome.records, transactionEntries])
   const visibleTabs = useMemo(
     () => stageConfig.filter((stage) => stage.visible).map((stage) => stage.name),
     [stageConfig]
@@ -529,6 +569,40 @@ export default function App() {
     window.location.reload()
   }
 
+  function clearMonthData(month) {
+    const normalizedMonth = String(month || '')
+    if (!/^\d{4}-\d{2}$/.test(normalizedMonth)) return false
+    const summary = monthDeletionSummary[normalizedMonth]
+    if (!summary?.total) {
+      window.alert('선택한 월에 삭제할 데이터가 없습니다.')
+      return false
+    }
+
+    const [year, monthNumber] = normalizedMonth.split('-')
+    const label = `${year}년 ${Number(monthNumber)}월`
+    if (
+      !window.confirm(
+        `${label} 데이터를 삭제할까요?\n` +
+          `수입 ${summary.incomeEntries}건 · 지출 ${summary.expenseEntries}건\n` +
+          `고정수입 기록 ${summary.fixedIncomeRecords}건 · 고정지출 기록 ${summary.fixedExpenseRecords}건\n\n` +
+          '고정 항목 원본과 투자자산, 다른 월 데이터는 유지됩니다.'
+      )
+    ) {
+      return false
+    }
+
+    ledger.replaceAll(
+      transactionEntries.filter((entry) => monthOf(entry.date) !== normalizedMonth)
+    )
+    fixedIncome.replaceRecords(
+      fixedIncome.records.filter((record) => record.month !== normalizedMonth)
+    )
+    fixed.replaceRecords(
+      fixed.records.filter((record) => record.month !== normalizedMonth)
+    )
+    return true
+  }
+
   function fillSampleData() {
     const sample = buildSampleDocument()
     const count = countBackupItems(sample)
@@ -637,8 +711,11 @@ export default function App() {
           onExport={exportJSON}
           onImport={importLocalFile}
           onClear={clearStoredData}
+          onClearMonth={clearMonthData}
           onFillSample={fillSampleData}
           importAccept={LOCAL_IMPORT_ACCEPT}
+          monthDeletionSummary={monthDeletionSummary}
+          maxDeleteMonth={currentMonth}
         />
       )}
 

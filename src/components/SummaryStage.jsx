@@ -368,11 +368,15 @@ export default function SummaryStage({ entries, investments }) {
     }
     return categoryBreakdown(filtered, '지출')
   }, [pieType, filtered, invest])
+  const pieTotal = useMemo(
+    () => pieData.reduce((sum, item) => sum + (Number(item.value) || 0), 0),
+    [pieData]
+  )
 
   const empty = entries.length === 0 && investments.length === 0
 
   return (
-    <div className="stage" style={{ '--accent': '#7c3aed' }}>
+    <div className="stage summary-stage" style={{ '--accent': '#7c3aed' }}>
       {empty ? (
         <div className="card">
           <div className="empty">
@@ -383,35 +387,12 @@ export default function SummaryStage({ entries, investments }) {
         </div>
       ) : (
         <>
-          <div className="stat-grid">
-            <div className="stat-card">
-              <div className="label">총수입</div>
-              <div className="value" style={{ color: '#16a34a' }}>
-                {formatKRW(totals.income)}
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="label">총지출</div>
-              <div className="value" style={{ color: '#dc2626' }}>
-                {formatKRW(totals.expense)}
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="label">투자 평가액</div>
-              <div className="value" style={{ color: '#0e7490' }}>
-                {formatKRW(invest.current)}
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="label">순자산 (현금 + 투자)</div>
-              <div className="value accent">{formatKRW(totals.netWorth)}</div>
-            </div>
-          </div>
-
-          <div className="card">
+          <section className="card summary-projection-card">
             <div className="chart-head">
               <div>
+                <span className="summary-card-kicker">ASSET FORECAST</span>
                 <h3 className="future-title">미래 자산 추이</h3>
+                <p className="sub">현재 자산과 투자 계획을 바탕으로 예상 흐름을 계산합니다.</p>
               </div>
               <label className="projection-control projection-horizon-control">
                 <span className="projection-control-head">
@@ -524,7 +505,13 @@ export default function SummaryStage({ entries, investments }) {
             ) : (
               <ResponsiveContainer width="100%" height={320}>
                 <AreaChart data={projectionChartData} margin={{ top: 44, right: 22, bottom: 5, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" />
+                  <defs>
+                    <linearGradient id="projectionFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.34} />
+                      <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.015} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 5" stroke="var(--chart-grid)" vertical={false} />
                   <XAxis
                     dataKey="month"
                     fontSize={12}
@@ -534,7 +521,13 @@ export default function SummaryStage({ entries, investments }) {
                   <YAxis tickFormatter={compactKRW} fontSize={12} width={54} />
                   <Tooltip formatter={tooltipMoney} />
                   <Legend />
-                  <Area type="monotone" dataKey="투자" stroke="#7c3aed" fill="#c4b5fd">
+                  <Area
+                    type="monotone"
+                    dataKey="투자"
+                    stroke="#7c3aed"
+                    strokeWidth={2.4}
+                    fill="url(#projectionFill)"
+                  >
                     <LabelList
                       dataKey="projectionEndpointLabel"
                       content={<ProjectionEndpointLabel />}
@@ -543,10 +536,11 @@ export default function SummaryStage({ entries, investments }) {
                 </AreaChart>
               </ResponsiveContainer>
             )}
-          </div>
+          </section>
 
           {years.length > 1 && (
-            <div className="year-filter">
+            <div className="year-filter summary-year-filter">
+              <span>차트 기간</span>
               <button
                 className={activeYear === 'all' ? 'on' : ''}
                 onClick={() => updateGraphSettings({ year: 'all' })}
@@ -565,9 +559,9 @@ export default function SummaryStage({ entries, investments }) {
             </div>
           )}
 
-          <div className="chart-grid">
+          <div className="chart-grid summary-chart-grid">
             <div
-              className="chart-card expense-trend-chart-card"
+              className="chart-card summary-chart-card summary-expense-trend-card expense-trend-chart-card"
               role="button"
               tabIndex={0}
               aria-label="카테고리별 지출 추이 설정"
@@ -581,6 +575,7 @@ export default function SummaryStage({ entries, investments }) {
             >
               <div className="chart-head">
                 <div>
+                  <span className="summary-card-kicker">SPENDING TREND</span>
                   <h3>카테고리별 지출 추이</h3>
                   <p className="sub">
                     {selectedExpenseTrendCategories.length > 0
@@ -605,7 +600,7 @@ export default function SummaryStage({ entries, investments }) {
               ) : (
                 <ResponsiveContainer width="100%" height={280}>
                   <LineChart data={expenseCategoryTrend.data} margin={{ top: 5, right: 14, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" />
+                    <CartesianGrid strokeDasharray="3 5" stroke="var(--chart-grid)" vertical={false} />
                     <XAxis dataKey="month" fontSize={12} tickMargin={8} />
                     <YAxis tickFormatter={compactKRW} fontSize={12} width={54} />
                     <Tooltip formatter={tooltipMoney} />
@@ -626,9 +621,14 @@ export default function SummaryStage({ entries, investments }) {
               )}
             </div>
 
-            <div className="chart-card">
-              <h3>수입 대비 지출</h3>
-              <p className="sub">막대: 수입 · 지출 / 선: 순수익</p>
+            <div className="chart-card summary-chart-card summary-flow-card">
+              <div className="chart-head">
+                <div>
+                  <span className="summary-card-kicker">MONTHLY FLOW</span>
+                  <h3>수입 대비 지출</h3>
+                  <p className="sub">월별 수입과 지출, 순수익을 함께 비교합니다.</p>
+                </div>
+              </div>
               {months.length === 0 ? (
                 <div className="empty" style={{ padding: '60px 10px' }}>
                   날짜가 있는 거래가 없습니다.
@@ -636,7 +636,7 @@ export default function SummaryStage({ entries, investments }) {
               ) : (
                 <ResponsiveContainer width="100%" height={280}>
                   <ComposedChart data={months} margin={{ top: 5, right: 14, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" />
+                    <CartesianGrid strokeDasharray="3 5" stroke="var(--chart-grid)" vertical={false} />
                     <XAxis dataKey="month" fontSize={12} tickMargin={8} />
                     <YAxis tickFormatter={compactKRW} fontSize={12} width={54} />
                     <Tooltip formatter={tooltipMoney} />
@@ -649,9 +649,10 @@ export default function SummaryStage({ entries, investments }) {
               )}
             </div>
 
-            <div className="chart-card">
+            <div className="chart-card summary-chart-card summary-allocation-card">
               <div className="chart-head">
                 <div>
+                  <span className="summary-card-kicker">ALLOCATION</span>
                   <h3>카테고리별 비중</h3>
                   <p className="sub">
                     {pieType === '지출' ? '지출 카테고리 분포' : '투자 상품 비중 (평가액)'}
@@ -677,37 +678,49 @@ export default function SummaryStage({ entries, investments }) {
                   {pieType} 데이터가 없습니다.
                 </div>
               ) : (
-                <ResponsiveContainer width="100%" height={280}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={90}
-                      label={({ percent }) =>
-                        percent > 0.04 ? `${(percent * 100).toFixed(0)}%` : ''
-                      }
-                      labelLine={false}
-                    >
-                      {pieData.map((entry, i) => (
-                        <Cell
-                          key={entry.name}
-                          fill={KIND_COLORS[entry.name] || PIE_COLORS[i % PIE_COLORS.length]}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={tooltipMoney} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
+                <div className="summary-pie-chart">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="44%"
+                        innerRadius={56}
+                        outerRadius={86}
+                        paddingAngle={2}
+                        cornerRadius={5}
+                        stroke="var(--surface)"
+                        strokeWidth={2}
+                      >
+                        {pieData.map((entry, i) => (
+                          <Cell
+                            key={entry.name}
+                            fill={KIND_COLORS[entry.name] || PIE_COLORS[i % PIE_COLORS.length]}
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={tooltipMoney} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="summary-pie-center" aria-hidden="true">
+                    <span>{pieType}</span>
+                    <strong>{compactKRW(pieTotal)}</strong>
+                  </div>
+                </div>
               )}
             </div>
 
-            <div className="chart-card">
-              <h3>누적 현금 흐름</h3>
-              <p className="sub">수입 − 지출을 월별로 누적</p>
+            <div className="chart-card summary-chart-card summary-cumulative-card">
+              <div className="chart-head">
+                <div>
+                  <span className="summary-card-kicker">CASH BALANCE</span>
+                  <h3>누적 현금 흐름</h3>
+                  <p className="sub">월별 순현금이 쌓이는 흐름을 보여줍니다.</p>
+                </div>
+              </div>
               {months.length === 0 ? (
                 <div className="empty" style={{ padding: '60px 10px' }}>
                   날짜가 있는 거래가 없습니다.
@@ -721,7 +734,7 @@ export default function SummaryStage({ entries, investments }) {
                         <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.02} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" />
+                    <CartesianGrid strokeDasharray="3 5" stroke="var(--chart-grid)" vertical={false} />
                     <XAxis dataKey="month" fontSize={12} tickMargin={8} />
                     <YAxis tickFormatter={compactKRW} fontSize={12} width={54} />
                     <Tooltip formatter={tooltipMoney} />

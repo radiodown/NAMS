@@ -430,6 +430,88 @@ button {
   width: 100%;
 }
 
+.settings-month-delete-section {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.settings-month-delete-section .settings-section-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.settings-month-delete-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-month-delete-controls .calendar-input,
+.settings-month-delete-controls .calendar-button {
+  width: 100%;
+}
+
+.settings-month-delete-controls .btn {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.settings-month-delete-preview {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.settings-month-delete-preview > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 6px 7px;
+  border: 1px solid color-mix(in srgb, var(--glass-stroke) 62%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 750;
+}
+
+.settings-month-delete-preview > span b {
+  color: var(--text);
+  font-size: 9px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.settings-month-delete-preview.is-empty {
+  display: block;
+}
+
+.settings-month-delete-preview.is-empty > span {
+  justify-content: flex-start;
+}
+
+.settings-month-delete-note {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+@media (max-width: 520px) {
+  .settings-month-delete-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-month-delete-preview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .drive-section {
   align-items: stretch;
   flex-direction: column;
@@ -10649,5 +10731,319 @@ select optgroup {
 
   .investment-stage .invest-card-open-hint {
     font-size: 10px;
+  }
+}
+
+/* ---------- graph stage renewal ---------- */
+.summary-stage {
+  --summary-violet: #7c3aed;
+  --chart-grid: color-mix(in srgb, var(--muted) 15%, transparent);
+}
+
+.summary-card-kicker {
+  display: block;
+  color: color-mix(in srgb, var(--summary-violet) 76%, var(--text));
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+}
+
+.summary-stage .summary-projection-card {
+  margin-bottom: 12px;
+  padding: 18px 18px 10px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--summary-violet) 20%, var(--glass-stroke));
+  border-radius: 21px;
+  background:
+    radial-gradient(circle at 100% 0%, color-mix(in srgb, var(--summary-violet) 11%, transparent), transparent 31%),
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 66%, transparent), transparent 50%),
+    color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--glass-highlight) 78%, transparent),
+    0 14px 34px color-mix(in srgb, var(--glass-shadow) 46%, transparent);
+}
+
+.summary-stage .summary-projection-card .future-title,
+.summary-stage .summary-chart-card h3 {
+  margin: 3px 0 2px;
+  font-size: 14px;
+  font-weight: 950;
+  letter-spacing: -0.025em;
+}
+
+.summary-stage .summary-projection-card .sub,
+.summary-stage .summary-chart-card .sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.summary-stage .projection-horizon-control {
+  width: min(210px, 100%);
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--glass-stroke) 68%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+
+.summary-stage .projection-controls {
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 11px 0 5px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--glass-stroke) 66%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-2) 66%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--glass-highlight) 56%, transparent);
+}
+
+.summary-stage .projection-control {
+  gap: 5px;
+  padding: 2px 4px;
+}
+
+.summary-stage .projection-control-head {
+  font-size: 9px;
+}
+
+.summary-stage .projection-control-head strong {
+  color: var(--summary-violet);
+  font-size: 10px;
+}
+
+.summary-stage .projection-control input[type='range'] {
+  height: 12px;
+  margin: 0;
+  accent-color: var(--summary-violet);
+}
+
+.summary-stage .projection-scenario-summary {
+  gap: 5px;
+  padding-top: 3px;
+}
+
+.summary-stage .projection-scenario-summary span {
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--summary-violet) 6%, var(--surface));
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.summary-stage .summary-year-filter {
+  align-items: center;
+  gap: 5px;
+  margin: 2px 0 10px;
+  padding: 5px;
+  border: 1px solid color-mix(in srgb, var(--glass-stroke) 68%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--glass-highlight) 62%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  backdrop-filter: blur(14px) saturate(145%);
+}
+
+.summary-stage .summary-year-filter > span {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.summary-stage .summary-year-filter button {
+  padding: 5px 10px;
+  border-color: transparent;
+  background: transparent;
+  font-size: 10px;
+}
+
+.summary-stage .summary-year-filter button.on {
+  border-color: color-mix(in srgb, var(--summary-violet) 44%, #ffffff);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.2), transparent 50%),
+    var(--summary-violet);
+  color: #ffffff;
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--summary-violet) 24%, transparent);
+}
+
+.summary-stage .summary-chart-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.summary-stage .summary-chart-card {
+  min-width: 0;
+  padding: 15px 14px 7px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--glass-stroke) 78%, var(--border));
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--glass-highlight) 62%, transparent), transparent 52%),
+    color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--glass-highlight) 72%, transparent),
+    0 10px 26px color-mix(in srgb, var(--glass-shadow) 36%, transparent);
+}
+
+.summary-stage .summary-chart-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--summary-violet) 24%, var(--glass-stroke));
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    0 18px 40px color-mix(in srgb, var(--glass-shadow) 58%, transparent);
+}
+
+.summary-expense-trend-card,
+.summary-cumulative-card {
+  grid-column: span 7;
+}
+
+.summary-flow-card,
+.summary-allocation-card {
+  grid-column: span 5;
+}
+
+.summary-stage .expense-trend-mode-pill {
+  min-width: 36px;
+  padding: 3px 7px;
+  border-color: color-mix(in srgb, var(--summary-violet) 24%, var(--glass-stroke));
+  background: color-mix(in srgb, var(--summary-violet) 7%, var(--surface-2));
+  font-size: 9px;
+}
+
+.summary-stage .toggle {
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--glass-stroke) 66%, var(--border));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface-2) 64%, transparent);
+}
+
+.summary-stage .toggle button {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 9px;
+}
+
+.summary-stage .toggle button.on {
+  background: var(--summary-violet);
+  color: #ffffff;
+  box-shadow: 0 5px 12px color-mix(in srgb, var(--summary-violet) 24%, transparent);
+}
+
+.summary-pie-chart {
+  position: relative;
+  height: 280px;
+}
+
+.summary-pie-center {
+  position: absolute;
+  top: 44%;
+  left: 50%;
+  display: flex;
+  max-width: 104px;
+  flex-direction: column;
+  align-items: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  text-align: center;
+}
+
+.summary-pie-center span {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 850;
+}
+
+.summary-pie-center strong {
+  max-width: 100%;
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 950;
+  letter-spacing: -0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary-stage .recharts-cartesian-axis-tick-value {
+  font-size: 10px;
+}
+
+.summary-stage .recharts-legend-item-text {
+  font-size: 10px;
+  font-weight: 750;
+}
+
+:root[data-theme='dark'] .summary-stage {
+  --chart-grid: color-mix(in srgb, #cbd5e1 13%, transparent);
+}
+
+:root[data-theme='dark'] .summary-stage .summary-card-kicker {
+  color: color-mix(in srgb, #c4b5fd 84%, var(--text));
+}
+
+@media (max-width: 1040px) {
+  .summary-stage .projection-controls {
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+  }
+
+  .summary-expense-trend-card,
+  .summary-flow-card,
+  .summary-allocation-card,
+  .summary-cumulative-card {
+    grid-column: span 6;
+  }
+}
+
+@media (max-width: 760px) {
+  .summary-stage .summary-chart-card {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 520px) {
+  .summary-stage .summary-projection-card {
+    padding: 14px 12px 7px;
+    border-radius: 17px;
+  }
+
+  .summary-stage .summary-projection-card > .chart-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary-stage .projection-horizon-control {
+    width: 100%;
+  }
+
+  .summary-stage .projection-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-stage .summary-year-filter {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .summary-stage .summary-year-filter > span,
+  .summary-stage .summary-year-filter button {
+    flex: 0 0 auto;
+  }
+
+  .summary-stage .summary-chart-grid {
+    gap: 10px;
+  }
+
+  .summary-stage .summary-chart-card {
+    padding: 13px 10px 5px;
+    border-radius: 16px;
+  }
+
+  .summary-stage .summary-chart-card:hover {
+    transform: none;
   }
 }
