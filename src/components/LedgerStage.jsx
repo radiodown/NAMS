@@ -8,6 +8,7 @@ import {
   recentEntrySuggestions,
   recurringTransactionKey,
 } from '../lib/inputAssist'
+import { daysUntilInstallmentDue, isInstallmentCategory } from '../lib/installment'
 import { isLoanInterestCategory } from '../lib/loanInterest'
 import { parseAmountInput } from '../lib/numberInput'
 import {
@@ -36,6 +37,7 @@ const blankForm = () => ({
   loanMonths: '1',
   loanRound: '1',
   loanGraceMonths: '',
+  installmentDueDate: '',
 })
 const blankCategoryForm = () => ({ original: '', value: '' })
 const PAYMENT_FILTER_UNSPECIFIED = '__unspecified__'
@@ -67,6 +69,14 @@ function addCategoryTotals(map, rows) {
     const category = row.category || '미분류'
     map.set(category, (map.get(category) || 0) + (Number(row.amount) || 0))
   })
+}
+
+function installmentBadgeTone(dateStr) {
+  const days = daysUntilInstallmentDue(dateStr)
+  if (days == null) return ''
+  if (days < 0) return ' expired'
+  if (days <= 30) return ' soon'
+  return ''
 }
 
 function recurringDismissedKeyName(type) {
@@ -158,6 +168,7 @@ export default function LedgerStage({
     [paymentMethods]
   )
   const loanInterestMode = type === '지출' && isLoanInterestCategory(form.category)
+  const installmentMode = type === '지출' && isInstallmentCategory(form.category)
 
   const ledgerRows = useMemo(
     () =>
@@ -408,6 +419,9 @@ export default function LedgerStage({
         payload.loanRound = form.loanRound
         payload.loanGraceMonths = form.loanGraceMonths
       }
+      if (installmentMode) {
+        payload.installmentDueDate = form.installmentDueDate
+      }
     }
     addCategory?.(type, payload.category)
     if (editingId) {
@@ -442,6 +456,7 @@ export default function LedgerStage({
       loanMonths: row.loanMonths != null ? String(row.loanMonths) : '1',
       loanRound: row.loanRound != null ? String(row.loanRound) : '1',
       loanGraceMonths: row.loanGraceMonths != null ? String(row.loanGraceMonths) : '',
+      installmentDueDate: row.installmentDueDate || '',
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -484,6 +499,9 @@ export default function LedgerStage({
         payload.loanMonths = form.loanMonths
         payload.loanRound = form.loanRound
         payload.loanGraceMonths = form.loanGraceMonths
+      }
+      if (isInstallmentCategory(payload.category) && installmentMode) {
+        payload.installmentDueDate = form.installmentDueDate
       }
     }
 
@@ -540,6 +558,9 @@ export default function LedgerStage({
         payload.loanMonths = row.loanMonths
         payload.loanRound = row.loanRound
         payload.loanGraceMonths = row.loanGraceMonths
+      }
+      if (isInstallmentCategory(row.category)) {
+        payload.installmentDueDate = row.installmentDueDate
       }
     }
     addCategory?.(type, payload.category)
@@ -842,6 +863,15 @@ export default function LedgerStage({
             onApply={(amount) => set('amount', String(amount))}
           />
         )}
+        {installmentMode && (
+          <div className="field">
+            <label>할부 만료일</label>
+            <CalendarInput
+              value={form.installmentDueDate}
+              onChange={(value) => set('installmentDueDate', value)}
+            />
+          </div>
+        )}
         <div className="field field-memo">
           <label>메모</label>
           <input
@@ -868,6 +898,12 @@ export default function LedgerStage({
   return (
     <div className="stage" style={{ '--accent': meta.color }}>
       <div className="stat-grid">
+        {type === '지출' && (
+          <div className="stat-card">
+            <div className="label">고정지출 총액</div>
+            <div className="value accent">{formatKRW(fixedMonthTotal)}</div>
+          </div>
+        )}
         <div className="stat-card">
           <div className="label">이번 달 ({currentMonth})</div>
           <div className="value accent">
@@ -1387,6 +1423,11 @@ export default function LedgerStage({
                               <span className="mini-tag">이자계산기</span>
                             )}
                             {row.fixedId && <span className="mini-tag">고정</span>}
+                            {row.installmentDueDate && (
+                              <span className={`mini-tag${installmentBadgeTone(row.installmentDueDate)}`}>
+                                할부 만료 {row.installmentDueDate}
+                              </span>
+                            )}
                           </>
                         )}
                       </td>

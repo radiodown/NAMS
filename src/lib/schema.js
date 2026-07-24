@@ -5,6 +5,7 @@ import { STAGE_META } from './categories'
 import { createId } from './id'
 import { normalizeMockPortfolio } from './mockInvestment'
 import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
+import { isInstallmentCategory } from './installment'
 
 export const SCHEMA_VERSION = 1
 
@@ -77,6 +78,11 @@ function normalizeLoanCalculator(source, category) {
   }
 }
 
+function normalizeInstallmentFields(source, category) {
+  if (!isInstallmentCategory(category)) return {}
+  return { installmentDueDate: str(source?.installmentDueDate) }
+}
+
 // --- transactions -----------------------------------------------------------
 export function normalizeEntry(entry) {
   const category = str(entry?.category) || '미분류'
@@ -89,6 +95,7 @@ export function normalizeEntry(entry) {
     paymentMethodId: str(entry?.paymentMethodId),
     paymentMethod: str(entry?.paymentMethod),
     ...normalizeLoanCalculator(entry, category),
+    ...normalizeInstallmentFields(entry, category),
   }
 }
 
@@ -213,6 +220,7 @@ export function normalizeTemplate(template) {
     paymentMethod: str(template?.paymentMethod) || '미지정',
     groupId: str(template?.groupId),
     ...normalizeLoanCalculator(template, category),
+    ...normalizeInstallmentFields(template, category),
   }
 }
 
@@ -239,6 +247,7 @@ function normalizeRecurringRecord(record, fallbackName) {
     paymentMethodId: str(record?.paymentMethodId),
     paymentMethod: str(record?.paymentMethod) || '미지정',
     ...normalizeLoanCalculator(record, category),
+    ...normalizeInstallmentFields(record, category),
   }
 }
 
@@ -337,6 +346,27 @@ export function normalizeFixedSectionSettings(value) {
   return {
     incomeCollapsed: source.incomeCollapsed === true,
     expenseCollapsed: source.expenseCollapsed === true,
+  }
+}
+
+export function defaultExpensePlanSettings() {
+  return {
+    customItems: [],
+  }
+}
+
+function normalizeBudgetItem(item) {
+  return {
+    id: str(item?.id) || createId(),
+    name: str(item?.name),
+    amount: Math.max(0, num(item?.amount)),
+  }
+}
+
+export function normalizeExpensePlanSettings(value) {
+  const source = value && typeof value === 'object' ? value : {}
+  return {
+    customItems: arr(source.customItems).map(normalizeBudgetItem),
   }
 }
 
@@ -442,6 +472,7 @@ export function buildDefaultDoc() {
       stages: defaultStageConfig(),
       fixedSections: defaultFixedSectionSettings(),
       recurringSuggestions: defaultRecurringSuggestionSettings(),
+      expensePlan: defaultExpensePlanSettings(),
       taxSettlement: defaultTaxSettings(),
       graphStage: defaultGraphStageSettings(),
       investmentStage: defaultInvestmentStageSettings(),
@@ -496,6 +527,7 @@ export function normalizeDoc(raw) {
       recurringSuggestions: normalizeRecurringSuggestionSettings(
         source.settings?.recurringSuggestions
       ),
+      expensePlan: normalizeExpensePlanSettings(source.settings?.expensePlan),
       taxSettlement: normalizeTaxSettings(source.settings?.taxSettlement),
       graphStage: normalizeGraphStageSettings(source.settings?.graphStage),
       investmentStage: normalizeInvestmentStageSettings(source.settings?.investmentStage),

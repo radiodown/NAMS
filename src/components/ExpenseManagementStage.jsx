@@ -1,12 +1,66 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
 import CalendarInput from './CalendarInput'
 import { fixedExpenseEntriesForMonth, fixedExpenseEntriesFromRecords } from '../lib/fixedExpenseEntries'
 import { reconcileFixedExpenseEntries } from '../lib/fixedExpenseSettlement'
+import { createId } from '../lib/id'
+import { daysUntilInstallmentDue } from '../lib/installment'
+import { parseAmountInput } from '../lib/numberInput'
+import { defaultExpensePlanSettings, normalizeExpensePlanSettings } from '../lib/schema'
+import { useStoredSlice } from '../lib/store'
+import { STORE_PATHS } from '../lib/storePaths'
+import NumberInput from './NumberInput'
 import PaymentMethodManager from './PaymentMethodManager'
 import Picker from './Picker'
 
 const EXPENSE_COLOR = '#dc2626'
+const BUDGET_PIE_COLORS = [
+  '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
+  '#8b5cf6', '#14b8a6', '#f97316', '#84cc16', '#06b6d4', '#a855f7',
+]
+const BUDGET_UNALLOCATED_COLOR = '#cbd5e1'
+const BUDGET_QUICK_ITEMS = ['생활비', '식비', '교통비', '여가비', '저축']
+
+function BudgetPlanTooltip({ active, payload, total }) {
+  if (!active || !payload?.length) return null
+
+  const item = payload[0]?.payload
+  if (!item) return null
+
+  const share = total > 0 ? (Number(item.value) / total) * 100 : 0
+  const groupLabel =
+    item.group === 'fixed' ? '고정지출' : item.group === 'unallocated' ? '남은 예산' : '직접 계획'
+
+  return (
+    <div
+      className="budget-plan-tooltip"
+      style={{ '--tooltip-color': item.color || 'var(--accent)' }}
+    >
+      <div className="budget-plan-tooltip-head">
+        <i aria-hidden="true" />
+        <strong>{item.name}</strong>
+        <span>{groupLabel}</span>
+      </div>
+      <b className="budget-plan-tooltip-amount">{formatKRW(item.value)}</b>
+      <div className="budget-plan-tooltip-bar" aria-hidden="true">
+        <i style={{ width: `${Math.min(100, share)}%` }} />
+      </div>
+      <div className="budget-plan-tooltip-foot">
+        <span>전체 월 예산에서</span>
+        <b>{share.toFixed(1)}%</b>
+      </div>
+    </div>
+  )
+}
+
+function installmentBadgeTone(dateStr) {
+  const days = daysUntilInstallmentDue(dateStr)
+  if (days == null) return ''
+  if (days < 0) return ' expired'
+  if (days <= 30) return ' soon'
+  return ''
+}
 
 function pct(value, max) {
   return max > 0 ? Math.min(100, (value / max) * 100) : 0
@@ -37,13 +91,129 @@ export default function ExpenseManagementStage({
   entries,
   fixedItems = [],
   fixedRecords = [],
+  fixedIncomeItems = [],
   paymentMethods,
   updatePaymentMethod,
   replacePaymentMethod,
 }) {
+  const [rawExpensePlan, setRawExpensePlan] = useStoredSlice(
+    STORE_PATHS.settings.expensePlan,
+    defaultExpensePlanSettings
+  )
+  const expensePlan = useMemo(() => normalizeExpensePlanSettings(rawExpensePlan), [rawExpensePlan])
+  const updateExpensePlan = (updater) => {
+    setRawExpensePlan((current) =>
+      normalizeExpensePlanSettings(
+        typeof updater === 'function' ? updater(normalizeExpensePlanSettings(current)) : updater
+      )
+    )
+  }
+  const totalFixedIncome = useMemo(
+    () => fixedIncomeItems.reduce((sum, it) => sum + (Number(it?.amount) || 0), 0),
+    [fixedIncomeItems]
+  )
+  const [fixedBundleExpanded, setFixedBundleExpanded] = useState(false)
+  const fixedBundleMembers = useMemo(
+    () =>
+      fixedItems
+        .filter(Boolean)
+        .map((it) => ({ id: it.id, name: it.name || '(이름 없음)', amount: Number(it.amount) || 0, color: it.color })),
+    [fixedItems]
+  )
+  const fixedBundleTotal = useMemo(
+    () => fixedBundleMembers.reduce((sum, it) => sum + it.amount, 0),
+    [fixedBundleMembers]
+  )
+  const allocatedTotal = useMemo(
+    () =>
+      fixedBundleTotal +
+      expensePlan.customItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+    [expensePlan.customItems, fixedBundleTotal]
+  )
+  const customAllocatedTotal = allocatedTotal - fixedBundleTotal
+  const unallocated = totalFixedIncome - allocatedTotal
+  const allocationRate = totalFixedIncome > 0 ? (allocatedTotal / totalFixedIncome) * 100 : 0
+  const allocationProgress = Math.min(100, Math.max(0, allocationRate))
+  const allocationRateLabel = Math.round(allocationRate)
+  const budgetStatus =
+    unallocated < 0
+      ? { tone: 'over', label: '예산을 초과했어요' }
+      : unallocated === 0
+        ? { tone: 'complete', label: '배분을 완료했어요' }
+        : allocationRate >= 80
+          ? { tone: 'near', label: '거의 다 배분했어요' }
+          : null
+  const budgetPieData = useMemo(() => {
+    const slices = []
+    if (fixedBundleExpanded) {
+      fixedBundleMembers
+        .filter((member) => member.amount > 0)
+        .forEach((member, index) =>
+          slices.push({
+            id: `fixed-${member.id}`,
+            name: member.name,
+            value: member.amount,
+            group: 'fixed',
+            color: member.color || BUDGET_PIE_COLORS[index % BUDGET_PIE_COLORS.length],
+          })
+        )
+    } else if (fixedBundleTotal > 0) {
+      slices.push({
+        id: 'fixed',
+        name: '고정지출',
+        value: fixedBundleTotal,
+        group: 'fixed',
+        color: '#ef4444',
+      })
+    }
+    expensePlan.customItems
+      .filter((item) => item.amount > 0)
+      .forEach((item, index) =>
+        slices.push({
+          id: item.id,
+          name: item.name || '(이름 없음)',
+          value: item.amount,
+          group: 'custom',
+          color: BUDGET_PIE_COLORS[(index + 2) % BUDGET_PIE_COLORS.length],
+        })
+      )
+    if (unallocated > 0) {
+      slices.push({
+        id: 'unallocated',
+        name: '미배정',
+        value: unallocated,
+        group: 'unallocated',
+        color: BUDGET_UNALLOCATED_COLOR,
+      })
+    }
+    return slices
+  }, [expensePlan.customItems, fixedBundleExpanded, fixedBundleMembers, fixedBundleTotal, unallocated])
+
+  function addBudgetItem(name = '') {
+    updateExpensePlan((current) => ({
+      ...current,
+      customItems: [...current.customItems, { id: createId(), name, amount: 0 }],
+    }))
+  }
+
+  function updateBudgetItem(id, patch) {
+    updateExpensePlan((current) => ({
+      ...current,
+      customItems: current.customItems.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    }))
+  }
+
+  function removeBudgetItem(id) {
+    updateExpensePlan((current) => ({
+      ...current,
+      customItems: current.customItems.filter((item) => item.id !== id),
+    }))
+  }
+
   const [month, setMonth] = useState(() => todayStr().slice(0, 7))
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
+  const [historyCollapsed, setHistoryCollapsed] = useState(true)
   const [historySearch, setHistorySearch] = useState('')
   const [selectedMethodKey, setSelectedMethodKey] = useState('')
   const [replaceTargetId, setReplaceTargetId] = useState('')
@@ -82,11 +252,6 @@ export default function ExpenseManagementStage({
 
   const total = useMemo(() => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0), [rows])
   const byCategory = useMemo(() => sumBy(rows, (row) => row.category || '미분류'), [rows])
-  const byMethod = useMemo(
-    () =>
-      sumBy(rows, (row) => methodName(methods, row.paymentMethodId, row.paymentMethod)),
-    [rows, methods]
-  )
   const allExpenseListRows = useMemo(
     () =>
       [...rows].sort(
@@ -222,10 +387,7 @@ export default function ExpenseManagementStage({
     [methods, selectedMethod]
   )
 
-  const overLimit = methodCards.filter((m) => m.limitAmount && m.amount > m.limitAmount).length
-  const targetMet = methodCards.filter((m) => m.targetAmount && m.amount >= m.targetAmount).length
   const topCategory = byCategory[0]
-  const topMethod = byMethod[0]
 
   useEffect(() => {
     if (!selectedMethodKey) return
@@ -235,29 +397,9 @@ export default function ExpenseManagementStage({
     }
   }, [methodCards, selectedMethodKey])
 
-  function toggleMethodCard(method, event) {
-    if (
-      event?.target?.closest?.(
-        'button,input,textarea,select,a,.picker,.card-product-search,.payment-manager'
-      )
-    ) {
-      return
-    }
+  function toggleMethodCard(method) {
     setSelectedMethodKey((current) => (current === method.key ? '' : method.key))
     setReplaceTargetId('')
-  }
-
-  function handleMethodCardKeyDown(method, event) {
-    if (event.key !== 'Enter' && event.key !== ' ') return
-    if (
-      event.target?.closest?.(
-        'button,input,textarea,select,a,.picker,.card-product-search,.payment-manager'
-      )
-    ) {
-      return
-    }
-    event.preventDefault()
-    toggleMethodCard(method, event)
   }
 
   function applyPaymentMethodReplace() {
@@ -317,75 +459,329 @@ export default function ExpenseManagementStage({
         </div>
       </div>
 
-      <div className="stat-grid">
-        <div className="stat-card">
-          <div className="label">{periodLabel} 지출</div>
-          <div className="value accent">{formatKRW(total)}</div>
+      <div className="card budget-plan-card">
+        <div className="budget-plan-head">
+          <div>
+            <div className="budget-plan-kicker">
+              <span className="budget-plan-kicker-icon" aria-hidden="true">₩</span>
+              <span>MONTHLY BUDGET</span>
+            </div>
+          </div>
+          {(totalFixedIncome <= 0 || budgetStatus) && (
+            <span className={`budget-plan-status ${totalFixedIncome <= 0 ? 'empty' : budgetStatus.tone}`}>
+              <i aria-hidden="true" />
+              {totalFixedIncome <= 0 ? '계획 시작 전' : budgetStatus.label}
+            </span>
+          )}
         </div>
-        <div className="stat-card">
-          <div className="label">가장 큰 카테고리</div>
-          <div className="value">{topCategory ? topCategory.name : '-'}</div>
-        </div>
-        <div className="stat-card">
-          <div className="label">가장 많이 쓴 결제수단</div>
-          <div className="value">{topMethod ? topMethod.name : '-'}</div>
-        </div>
-        <div className="stat-card">
-          <div className="label">한도 초과 / 실적 달성</div>
-          <div className="value">{overLimit} / {targetMet}</div>
-        </div>
+        {totalFixedIncome <= 0 ? (
+          <div className="budget-plan-empty">
+            <span className="budget-plan-empty-icon" aria-hidden="true">₩</span>
+            <strong>먼저 월 고정수입을 등록해 주세요</strong>
+            <p>수입 관리에서 월 고정수입을 추가하면 이곳에서 자동으로 예산을 나눌 수 있어요.</p>
+          </div>
+        ) : (
+          <>
+            <div className="budget-plan-overview">
+              <div className="budget-plan-income">
+                <span>이번 달 예산 기준</span>
+                <strong>{formatKRW(totalFixedIncome)}</strong>
+                <small>등록한 월 고정수입의 합계예요.</small>
+              </div>
+              <div className="budget-plan-progress">
+                <div className="budget-plan-progress-head">
+                  <span>예산 배분률</span>
+                  <strong className={unallocated < 0 ? 'over' : ''}>
+                    {allocationRateLabel}%
+                  </strong>
+                </div>
+                <div
+                  className={`budget-plan-progress-track${unallocated < 0 ? ' over' : ''}`}
+                  role="progressbar"
+                  aria-label="예산 배분률"
+                  aria-valuemin="0"
+                  aria-valuemax="100"
+                  aria-valuenow={Math.min(100, allocationRateLabel)}
+                >
+                  <i style={{ width: `${allocationProgress}%` }} />
+                </div>
+                <p>
+                  {unallocated < 0
+                    ? `${formatKRW(Math.abs(unallocated))}만큼 계획을 줄이면 수입 안에 들어와요.`
+                    : `${formatKRW(unallocated)}을(를) 더 배분할 수 있어요.`}
+                </p>
+              </div>
+              <div className="budget-plan-stats">
+                <div className="budget-plan-stat">
+                  <span>고정지출</span>
+                  <b>{formatKRW(fixedBundleTotal)}</b>
+                </div>
+                <div className="budget-plan-stat">
+                  <span>직접 계획</span>
+                  <b>{formatKRW(customAllocatedTotal)}</b>
+                </div>
+                <div className={`budget-plan-stat${unallocated < 0 ? ' over' : ''}`}>
+                  <span>{unallocated < 0 ? '초과 금액' : '남은 예산'}</span>
+                  <b>{formatKRW(Math.abs(unallocated))}</b>
+                </div>
+              </div>
+            </div>
+
+            <div className="budget-plan-body">
+              <section className="budget-plan-visual" aria-labelledby="budget-allocation-title">
+                <div className="budget-plan-panel-head">
+                  <div>
+                    <span>배분 구조</span>
+                    <h3 id="budget-allocation-title">월 수입 사용 계획</h3>
+                  </div>
+                  <span className="budget-plan-count">
+                    {expensePlan.customItems.length + (fixedBundleTotal > 0 ? 1 : 0)}개 항목
+                  </span>
+                </div>
+                <div className="budget-plan-chart">
+                  <ResponsiveContainer width="100%" height={250}>
+                    <PieChart>
+                      <Pie
+                        data={budgetPieData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={72}
+                        outerRadius={104}
+                        paddingAngle={2}
+                        stroke="none"
+                        onClick={(entry) => {
+                          if (entry?.group === 'fixed') setFixedBundleExpanded((expanded) => !expanded)
+                        }}
+                      >
+                        {budgetPieData.map((entry) => (
+                          <Cell key={entry.id} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        content={<BudgetPlanTooltip total={totalFixedIncome} />}
+                        cursor={false}
+                        wrapperStyle={{ zIndex: 5, outline: 'none' }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className={`budget-plan-chart-center${unallocated < 0 ? ' over' : ''}`}>
+                    <span>{unallocated < 0 ? '예산 초과' : '남은 예산'}</span>
+                    <strong>{formatKRW(Math.abs(unallocated))}</strong>
+                    <small>{allocationRateLabel}% 배분</small>
+                  </div>
+                </div>
+                <p className="budget-plan-chart-hint">
+                  조각에 마우스를 올리면 상세 금액을, 고정지출을 누르면 세부 항목을 볼 수 있어요.
+                </p>
+              </section>
+
+              <section className="budget-plan-editor" aria-labelledby="budget-editor-title">
+                <div className="budget-plan-panel-head">
+                  <div>
+                    <span>예산 편집</span>
+                    <h3 id="budget-editor-title">항목별 계획 금액</h3>
+                  </div>
+                  <span className="budget-plan-auto-save">자동 저장</span>
+                </div>
+
+                <div className="budget-plan-list">
+                <div className="budget-plan-row budget-plan-row-fixed">
+                    <span className="budget-plan-row-dot fixed" aria-hidden="true" />
+                    <span className="budget-plan-row-name">
+                      <b>고정지출</b>
+                      <small>등록 항목 자동 반영</small>
+                    </span>
+                    <span className="budget-plan-row-amount">{formatKRW(fixedBundleTotal)}</span>
+                    <button
+                      type="button"
+                      className={`budget-plan-detail-toggle${fixedBundleExpanded ? ' open' : ''}`}
+                      onClick={() => setFixedBundleExpanded((expanded) => !expanded)}
+                      aria-label="고정지출 상세 항목 보기"
+                      aria-expanded={fixedBundleExpanded}
+                    >
+                      ›
+                    </button>
+                  </div>
+                  {fixedBundleExpanded && fixedBundleMembers.length > 0 && (
+                    <div className="budget-plan-fixed-detail">
+                      {fixedBundleMembers.map((member) => (
+                        <div key={member.id}>
+                          <span
+                            className="budget-plan-row-dot"
+                            style={{ background: member.color || 'var(--accent)' }}
+                            aria-hidden="true"
+                          />
+                          <span>{member.name}</span>
+                          <b>{formatKRW(member.amount)}</b>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {expensePlan.customItems.map((item, index) => (
+                    <div className="budget-plan-row" key={item.id}>
+                      <span
+                        className="budget-plan-row-dot"
+                        style={{ background: BUDGET_PIE_COLORS[(index + 2) % BUDGET_PIE_COLORS.length] }}
+                        aria-hidden="true"
+                      />
+                      <input
+                        type="text"
+                        className="budget-plan-row-name-input"
+                        aria-label="예산 항목명"
+                        placeholder="항목명"
+                        value={item.name}
+                        onChange={(e) => updateBudgetItem(item.id, { name: e.target.value })}
+                      />
+                      <div className="budget-plan-amount-input">
+                        <NumberInput
+                          min="0"
+                          step="1"
+                          decimal={false}
+                          amount
+                          aria-label={`${item.name || '예산 항목'} 계획 금액`}
+                          placeholder="0"
+                          value={item.amount ? String(item.amount) : ''}
+                          onChange={(value) => updateBudgetItem(item.id, { amount: parseAmountInput(value) })}
+                        />
+                        <span>원</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="budget-plan-remove"
+                        onClick={() => removeBudgetItem(item.id)}
+                        aria-label={`${item.name || '항목'} 삭제`}
+                        title="항목 삭제"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+
+                  {expensePlan.customItems.length === 0 && (
+                    <div className="budget-plan-list-empty">
+                      직접 계획할 항목을 아래에서 추가해 보세요.
+                    </div>
+                  )}
+
+                  <div className="budget-plan-quick-add">
+                    <span>빠른 추가</span>
+                    <div>
+                      {BUDGET_QUICK_ITEMS.map((name) => {
+                        const added = expensePlan.customItems.some((item) => item.name === name)
+                        return (
+                          <button
+                            type="button"
+                            key={name}
+                            disabled={added}
+                            onClick={() => addBudgetItem(name)}
+                          >
+                            {added ? '✓ ' : '+ '}{name}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  <button type="button" className="budget-plan-add-row" onClick={() => addBudgetItem()}>
+                    <span aria-hidden="true">+</span>
+                    직접 항목 추가
+                  </button>
+                </div>
+              </section>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="expense-management-grid">
-        <div className="card">
-          <h2 className="section-title">결제수단별 사용</h2>
+        <div className="card method-usage-panel">
+          <div className="method-usage-panel-head">
+            <div>
+              <h2 className="section-title">결제수단별 사용</h2>
+              <p>{periodLabel} · {methodCards.length}개 결제수단</p>
+            </div>
+            <div className="method-usage-total">
+              <span>총 사용</span>
+              <strong>{formatKRW(total)}</strong>
+            </div>
+          </div>
           <div className="method-usage-list">
             {methodCards.length === 0 ? (
               <div className="empty" style={{ padding: '36px 10px' }}>결제수단을 추가해 주세요.</div>
             ) : (
-              methodCards.map((method) => {
-                const isSelected = selectedMethodKey === method.key
-                const productText = methodProductLabel(method)
-                return (
-                <div
-                  className={`method-usage-card${isSelected ? ' selected' : ''}`}
-                  key={method.key}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => toggleMethodCard(method, event)}
-                  onKeyDown={(event) => handleMethodCardKeyDown(method, event)}
-                >
-                  <div className="method-usage-head">
-                    <div>
-                      <b>{method.name}</b>
+              <>
+                <div className="method-usage-columns" aria-hidden="true">
+                  <span>결제수단</span>
+                  <span>사용액</span>
+                  <span>한도</span>
+                  <span>실적</span>
+                  <span />
+                </div>
+                {methodCards.map((method, index) => {
+                  const isSelected = selectedMethodKey === method.key
+                  const productText = methodProductLabel(method)
+                  const methodMeta = [method.kind, productText].filter(Boolean).join(' · ')
+                  const limitRate = method.limitAmount
+                    ? Math.round((method.amount / method.limitAmount) * 100)
+                    : 0
+                  const targetRate = method.targetAmount
+                    ? Math.round((method.amount / method.targetAmount) * 100)
+                    : 0
+                  return (
+                    <div
+                      className={`method-usage-card${isSelected ? ' selected' : ''}`}
+                      key={method.key}
+                      style={{ '--method-color': BUDGET_PIE_COLORS[index % BUDGET_PIE_COLORS.length] }}
+                    >
+                      <button
+                        type="button"
+                        className="method-usage-summary"
+                        onClick={() => toggleMethodCard(method)}
+                        aria-expanded={isSelected}
+                  >
+                    <span className="method-usage-identity">
+                      <i className="method-usage-avatar" aria-hidden="true">
+                        {(method.name || '?').trim().slice(0, 1)}
+                      </i>
                       <span>
-                        {method.kind}
-                        {method.annualFee ? ` · 연회비 ${formatKRW(method.annualFee)}` : ''}
+                        <b>{method.name}</b>
+                        <small title={methodMeta}>{methodMeta || '결제수단 정보 없음'}</small>
                       </span>
-                      {productText && <small>{productText}</small>}
-                    </div>
-                    <strong>{formatKRW(method.amount)}</strong>
-                  </div>
-                  {method.limitAmount ? (
-                    <div className="usage-row">
-                      <span>{periodMode === 'year' ? '연 한도' : '한도'} {formatKRW(method.limitAmount)}</span>
-                      <b>{pct(method.amount, method.limitAmount).toFixed(0)}%</b>
-                      <div className="usage-bar">
-                        <i style={{ width: `${pct(method.amount, method.limitAmount)}%` }} />
-                      </div>
-                    </div>
-                  ) : null}
-                  {method.targetAmount ? (
-                    <div className="usage-row">
-                      <span>{periodMode === 'year' ? '연 실적' : '실적'} {formatKRW(method.targetAmount)}</span>
-                      <b>{method.amount >= method.targetAmount ? '달성' : `${pct(method.amount, method.targetAmount).toFixed(0)}%`}</b>
-                      <div className="usage-bar target">
-                        <i style={{ width: `${pct(method.amount, method.targetAmount)}%` }} />
-                      </div>
-                    </div>
-                  ) : null}
-                  {isSelected && (
-                    <div className="method-usage-detail">
+                    </span>
+                    <span className="method-usage-spend">
+                      <strong>{formatKRW(method.amount)}</strong>
+                      <small>전체 {pct(method.amount, total).toFixed(0)}%</small>
+                    </span>
+                    <span className={`method-usage-metric${limitRate > 100 ? ' over' : ''}`}>
+                      <span>
+                        <small>한도</small>
+                        <b>{method.limitAmount ? `${limitRate}%` : '-'}</b>
+                      </span>
+                      <i>
+                        <b style={{ width: `${pct(method.amount, method.limitAmount)}%` }} />
+                      </i>
+                    </span>
+                    <span className={`method-usage-metric target${targetRate >= 100 ? ' met' : ''}`}>
+                      <span>
+                        <small>실적</small>
+                        <b>
+                          {method.targetAmount
+                            ? targetRate >= 100 ? '달성' : `${targetRate}%`
+                            : '-'}
+                        </b>
+                      </span>
+                      <i>
+                        <b style={{ width: `${pct(method.amount, method.targetAmount)}%` }} />
+                      </i>
+                    </span>
+                    <span className={`method-usage-chevron${isSelected ? ' open' : ''}`} aria-hidden="true">
+                      ›
+                    </span>
+                      </button>
+                      {isSelected && (
+                        <div className="method-usage-detail">
                       <div className="method-usage-detail-grid">
                         <div>
                           <span>사용 건수</span>
@@ -447,100 +843,147 @@ export default function ExpenseManagementStage({
                           />
                         </div>
                       )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  )
+                })}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="card category-spend-panel">
+          <div className="category-spend-panel-head">
+            <div>
+              <h2 className="section-title">카테고리별 지출</h2>
+              <p>{periodLabel} · {byCategory.length}개 카테고리</p>
+            </div>
+            {topCategory && (
+              <div className="category-spend-top">
+                <span>가장 큰 지출</span>
+                <strong>{topCategory.name}</strong>
+              </div>
+            )}
+          </div>
+          <div className="category-spend-list">
+            {byCategory.length === 0 ? (
+              <div className="empty" style={{ padding: '36px 10px' }}>선택한 기간의 지출이 없습니다.</div>
+            ) : (
+              byCategory.slice(0, 8).map((row, index) => {
+                const share = total > 0 ? (row.amount / total) * 100 : 0
+                const color = BUDGET_PIE_COLORS[(index + 3) % BUDGET_PIE_COLORS.length]
+                return (
+                  <div
+                    className="category-spend-row"
+                    key={row.name}
+                    style={{ '--category-color': color }}
+                  >
+                    <span className="category-spend-rank">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
+                    <span className="category-spend-name">
+                      <i aria-hidden="true" />
+                      <b title={row.name}>{row.name}</b>
+                    </span>
+                    <span className="category-spend-share">{share.toFixed(1)}%</span>
+                    <strong className="category-spend-amount">{formatKRW(row.amount)}</strong>
+                    <span className="category-spend-bar" aria-hidden="true">
+                      <i style={{ width: `${pct(row.amount, byCategory[0].amount)}%` }} />
+                    </span>
+                  </div>
                 )
               })
             )}
           </div>
-        </div>
-
-        <div className="card">
-          <h2 className="section-title">카테고리별 지출</h2>
-          <div className="rank-list">
-            {byCategory.length === 0 ? (
-              <div className="empty" style={{ padding: '36px 10px' }}>선택한 기간의 지출이 없습니다.</div>
-            ) : (
-              byCategory.slice(0, 8).map((row) => (
-                <div className="rank-row" key={row.name}>
-                  <span>{row.name}</span>
-                  <b>{formatKRW(row.amount)}</b>
-                  <div className="usage-bar">
-                    <i style={{ width: `${pct(row.amount, byCategory[0].amount)}%` }} />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          {byCategory.length > 8 && (
+            <p className="category-spend-more">그 외 {byCategory.length - 8}개 카테고리</p>
+          )}
         </div>
       </div>
 
       <div className="card">
-        <h2 className="section-title">지출 내역</h2>
-        {allExpenseListRows.length > 0 && (
-          <div className="ledger-filter-bar management-history-search">
-            <div className="ledger-filter-field ledger-filter-search">
-              <span>검색</span>
-              <input
-                type="search"
-                placeholder="날짜, 카테고리, 결제수단, 메모, 금액"
-                value={historySearch}
-                onChange={(e) => setHistorySearch(e.target.value)}
-              />
-            </div>
-            <div className="ledger-filter-actions">
-              <button
-                type="button"
-                className="btn btn-sm"
-                disabled={!historySearch.trim()}
-                onClick={() => setHistorySearch('')}
-              >
-                초기화
-              </button>
-            </div>
-          </div>
-        )}
-        {allExpenseListRows.length === 0 ? (
-          <div className="empty">
-            <strong>선택한 기간의 지출이 없습니다</strong>
-            기간을 바꾸거나 지출 항목을 추가해 보세요.
-          </div>
-        ) : expenseListRows.length === 0 ? (
-          <div className="empty">
-            <strong>조건에 맞는 지출 내역이 없습니다</strong>
-            검색어를 조정해 보세요.
-          </div>
-        ) : (
-          <div className="table-wrap">
-            <table className="ledger-table expense-history-table">
-              <thead>
-                <tr>
-                  <th>날짜</th>
-                  <th>카테고리</th>
-                  <th>결제수단</th>
-                  <th className="col-right">금액</th>
-                  <th>메모</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenseListRows.map((row, index) => (
-                  <tr key={`${row.id || 'expense'}-${row.date}-${index}`}>
-                    <td data-label="날짜">{row.date || '-'}</td>
-                    <td data-label="카테고리">
-                      <span className="tag">{row.category || '미분류'}</span>
-                      {row.fixedId && <span className="mini-tag">고정</span>}
-                    </td>
-                    <td data-label="결제수단">
-                      {methodName(methods, row.paymentMethodId, row.paymentMethod)}
-                    </td>
-                    <td className="amount" data-label="금액">{formatKRW(row.amount)}</td>
-                    <td className="memo" data-label="메모">{row.memo || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <button
+          type="button"
+          className="fixed-toggle"
+          onClick={() => setHistoryCollapsed((collapsed) => !collapsed)}
+          aria-expanded={!historyCollapsed}
+        >
+          <span className={`chevron${historyCollapsed ? '' : ' open'}`}>▶</span>
+          <h2 className="section-title" style={{ margin: 0 }}>지출 내역</h2>
+        </button>
+        {!historyCollapsed && (
+          <>
+            {allExpenseListRows.length > 0 && (
+              <div className="ledger-filter-bar management-history-search">
+                <div className="ledger-filter-field ledger-filter-search">
+                  <span>검색</span>
+                  <input
+                    type="search"
+                    placeholder="날짜, 카테고리, 결제수단, 메모, 금액"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                  />
+                </div>
+                <div className="ledger-filter-actions">
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    disabled={!historySearch.trim()}
+                    onClick={() => setHistorySearch('')}
+                  >
+                    초기화
+                  </button>
+                </div>
+              </div>
+            )}
+            {allExpenseListRows.length === 0 ? (
+              <div className="empty">
+                <strong>선택한 기간의 지출이 없습니다</strong>
+                기간을 바꾸거나 지출 항목을 추가해 보세요.
+              </div>
+            ) : expenseListRows.length === 0 ? (
+              <div className="empty">
+                <strong>조건에 맞는 지출 내역이 없습니다</strong>
+                검색어를 조정해 보세요.
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table className="ledger-table expense-history-table">
+                  <thead>
+                    <tr>
+                      <th>날짜</th>
+                      <th>카테고리</th>
+                      <th>결제수단</th>
+                      <th className="col-right">금액</th>
+                      <th>메모</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenseListRows.map((row, index) => (
+                      <tr key={`${row.id || 'expense'}-${row.date}-${index}`}>
+                        <td data-label="날짜">{row.date || '-'}</td>
+                        <td data-label="카테고리">
+                          <span className="tag">{row.category || '미분류'}</span>
+                          {row.fixedId && <span className="mini-tag">고정</span>}
+                          {row.installmentDueDate && (
+                            <span className={`mini-tag${installmentBadgeTone(row.installmentDueDate)}`}>
+                              할부 만료 {row.installmentDueDate}
+                            </span>
+                          )}
+                        </td>
+                        <td data-label="결제수단">
+                          {methodName(methods, row.paymentMethodId, row.paymentMethod)}
+                        </td>
+                        <td className="amount" data-label="금액">{formatKRW(row.amount)}</td>
+                        <td className="memo" data-label="메모">{row.memo || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -2,8 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { STAGE_META } from '../lib/categories'
 import { formatKRW } from '../lib/format'
 import { createId } from '../lib/id'
+import { daysUntilInstallmentDue, isInstallmentCategory } from '../lib/installment'
 import { isLoanInterestCategory } from '../lib/loanInterest'
 import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
+import CalendarInput from './CalendarInput'
 import CategoryInput from './CategoryInput'
 import LoanInterestCalculator from './LoanInterestCalculator'
 import NumberInput from './NumberInput'
@@ -23,6 +25,7 @@ const blankForm = () => ({
   loanMonths: '1',
   loanRound: '1',
   loanGraceMonths: '',
+  installmentDueDate: '',
 })
 
 // Per-category accent palette so each small widget reads as distinct.
@@ -122,6 +125,14 @@ function daysUntilPayment(day) {
     target = new Date(y, m + 1, Math.min(day, lastNext))
   }
   return Math.round((target - now) / 86400000)
+}
+
+function installmentBadgeTone(dateStr) {
+  const days = daysUntilInstallmentDue(dateStr)
+  if (days == null) return ''
+  if (days < 0) return ' expired'
+  if (days <= 30) return ' soon'
+  return ''
 }
 
 // Long-press duration before a touch turns into a widget drag, and how far the
@@ -308,6 +319,7 @@ export default function FixedExpenses({
   const selectedColor =
     form.color || colorForCategory(form.category.trim() || '기타', categories, colorPalette)
   const loanInterestMode = isExpense && isLoanInterestCategory(form.category)
+  const installmentMode = isExpense && isInstallmentCategory(form.category)
 
   function addFixedCategory() {
     const value = categoryDraft.trim()
@@ -363,6 +375,9 @@ export default function FixedExpenses({
       payload.loanRound = form.loanRound
       payload.loanGraceMonths = form.loanGraceMonths
     }
+    if (installmentMode) {
+      payload.installmentDueDate = form.installmentDueDate
+    }
     addCategory?.(type, payload.category)
     if (editingId) {
       updateItem(editingId, payload)
@@ -403,6 +418,7 @@ export default function FixedExpenses({
       loanMonths: it.loanMonths != null ? String(it.loanMonths) : '1',
       loanRound: it.loanRound != null ? String(it.loanRound) : '1',
       loanGraceMonths: it.loanGraceMonths != null ? String(it.loanGraceMonths) : '',
+      installmentDueDate: it.installmentDueDate || '',
     })
     setCategoryDraft('')
     setCategoryAddOpen(false)
@@ -454,6 +470,9 @@ export default function FixedExpenses({
       payload.loanMonths = it.loanMonths
       payload.loanRound = it.loanRound
       payload.loanGraceMonths = it.loanGraceMonths
+    }
+    if (isExpense && isInstallmentCategory(category)) {
+      payload.installmentDueDate = it.installmentDueDate
     }
     addCategory?.(type, category)
     addItem(payload)
@@ -779,6 +798,11 @@ export default function FixedExpenses({
                             : `${dayLabel} 미설정`}
                         </span>
                         <span className="fixed-widget-share">{shareLabel}</span>
+                        {it.installmentDueDate && (
+                          <span className={`mini-tag${installmentBadgeTone(it.installmentDueDate)}`}>
+                            할부 만료 {it.installmentDueDate}
+                          </span>
+                        )}
                         {paidStatus && (
                           <span className="fixed-paid-badge" title={paidStatusTitle(paidStatus)}>
                             지출됨
@@ -937,6 +961,15 @@ export default function FixedExpenses({
                       onChange={set}
                       onApply={(amount) => set('amount', String(amount))}
                     />
+                  )}
+                  {installmentMode && (
+                    <div className="field">
+                      <label>할부 만료일</label>
+                      <CalendarInput
+                        value={form.installmentDueDate}
+                        onChange={(value) => set('installmentDueDate', value)}
+                      />
+                    </div>
                   )}
                   <div className="fixed-modal-actions">
                     <button type="button" className="btn" onClick={cancelEdit}>

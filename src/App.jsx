@@ -675,6 +675,7 @@ export default function App() {
             entries={transactionEntries}
             fixedItems={fixed.items}
             fixedRecords={fixed.records}
+            fixedIncomeItems={fixedIncome.items}
             paymentMethods={paymentMethods}
             updatePaymentMethod={updatePaymentMethodEverywhere}
             replacePaymentMethod={replacePaymentMethodEverywhere}
