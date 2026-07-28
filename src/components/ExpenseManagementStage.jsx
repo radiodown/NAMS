@@ -30,7 +30,13 @@ function BudgetPlanTooltip({ active, payload, total }) {
 
   const share = total > 0 ? (Number(item.value) / total) * 100 : 0
   const groupLabel =
-    item.group === 'fixed' ? '고정지출' : item.group === 'unallocated' ? '남은 예산' : '직접 계획'
+    item.group === 'fixed'
+      ? '고정지출'
+      : item.group === 'savings'
+        ? '저축(고정)'
+        : item.group === 'unallocated'
+          ? '남은 예산'
+          : '직접 계획'
 
   return (
     <div
@@ -117,13 +123,27 @@ export default function ExpenseManagementStage({
     () =>
       fixedItems
         .filter(Boolean)
-        .map((it) => ({ id: it.id, name: it.name || '(이름 없음)', amount: Number(it.amount) || 0, color: it.color })),
+        .map((it) => ({
+          id: it.id,
+          name: it.name || '(이름 없음)',
+          amount: Number(it.amount) || 0,
+          color: it.color,
+          category: it.category || '',
+        })),
     [fixedItems]
   )
   const fixedBundleTotal = useMemo(
     () => fixedBundleMembers.reduce((sum, it) => sum + it.amount, 0),
     [fixedBundleMembers]
   )
+  const fixedSavingsTotal = useMemo(
+    () =>
+      fixedBundleMembers
+        .filter((it) => it.category === '저축')
+        .reduce((sum, it) => sum + it.amount, 0),
+    [fixedBundleMembers]
+  )
+  const fixedOtherTotal = fixedBundleTotal - fixedSavingsTotal
   const allocatedTotal = useMemo(
     () =>
       fixedBundleTotal +
@@ -153,18 +173,29 @@ export default function ExpenseManagementStage({
             id: `fixed-${member.id}`,
             name: member.name,
             value: member.amount,
-            group: 'fixed',
+            group: member.category === '저축' ? 'savings' : 'fixed',
             color: member.color || BUDGET_PIE_COLORS[index % BUDGET_PIE_COLORS.length],
           })
         )
-    } else if (fixedBundleTotal > 0) {
-      slices.push({
-        id: 'fixed',
-        name: '고정지출',
-        value: fixedBundleTotal,
-        group: 'fixed',
-        color: '#ef4444',
-      })
+    } else {
+      if (fixedOtherTotal > 0) {
+        slices.push({
+          id: 'fixed',
+          name: '고정지출',
+          value: fixedOtherTotal,
+          group: 'fixed',
+          color: '#ef4444',
+        })
+      }
+      if (fixedSavingsTotal > 0) {
+        slices.push({
+          id: 'fixed-savings',
+          name: '저축',
+          value: fixedSavingsTotal,
+          group: 'savings',
+          color: '#ef6644',
+        })
+      }
     }
     expensePlan.customItems
       .filter((item) => item.amount > 0)
@@ -187,7 +218,14 @@ export default function ExpenseManagementStage({
       })
     }
     return slices
-  }, [expensePlan.customItems, fixedBundleExpanded, fixedBundleMembers, fixedBundleTotal, unallocated])
+  }, [
+    expensePlan.customItems,
+    fixedBundleExpanded,
+    fixedBundleMembers,
+    fixedOtherTotal,
+    fixedSavingsTotal,
+    unallocated,
+  ])
 
   function addBudgetItem(name = '') {
     updateExpensePlan((current) => ({
@@ -535,7 +573,10 @@ export default function ExpenseManagementStage({
                     <h3 id="budget-allocation-title">월 수입 사용 계획</h3>
                   </div>
                   <span className="budget-plan-count">
-                    {expensePlan.customItems.length + (fixedBundleTotal > 0 ? 1 : 0)}개 항목
+                    {expensePlan.customItems.length +
+                      (fixedOtherTotal > 0 ? 1 : 0) +
+                      (fixedSavingsTotal > 0 ? 1 : 0)}
+                    개 항목
                   </span>
                 </div>
                 <div className="budget-plan-chart">
@@ -552,7 +593,8 @@ export default function ExpenseManagementStage({
                         paddingAngle={2}
                         stroke="none"
                         onClick={(entry) => {
-                          if (entry?.group === 'fixed') setFixedBundleExpanded((expanded) => !expanded)
+                          if (entry?.group === 'fixed' || entry?.group === 'savings')
+                            setFixedBundleExpanded((expanded) => !expanded)
                         }}
                       >
                         {budgetPieData.map((entry) => (

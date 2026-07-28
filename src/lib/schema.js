@@ -315,6 +315,17 @@ export function defaultGraphStageSettings() {
     wageGrowth: 0,
     monthlyIncomeInvestmentOverride: 0,
     expenseTrendCategories: [],
+    purchaseGoal: {
+      name: '차량',
+      targetAmount: 40000000,
+      currentAmount: 0,
+      targetMonths: 36,
+      monthlySavingAmount: 1000000,
+      savingsAnnualRate: 3,
+      downPayment: 10000000,
+      installmentMonths: 60,
+      installmentAnnualRate: 5.5,
+    },
   }
 }
 
@@ -422,6 +433,17 @@ function boundedOptionalNumber(value, min, max, step = 1) {
 export function normalizeGraphStageSettings(value) {
   const source = value && typeof value === 'object' ? value : {}
   const year = str(source.year)
+  const defaultGoal = defaultGraphStageSettings().purchaseGoal
+  const goalSource =
+    source.purchaseGoal && typeof source.purchaseGoal === 'object'
+      ? source.purchaseGoal
+      : {}
+  const goalTargetAmount = boundedNumber(
+    goalSource.targetAmount,
+    defaultGoal.targetAmount,
+    10000,
+    10000000000000
+  )
   return {
     pieType: source.pieType === '투자' ? '투자' : '지출',
     year: year === 'all' || /^\d{4}$/.test(year) ? year : 'all',
@@ -436,6 +458,54 @@ export function normalizeGraphStageSettings(value) {
       100
     ),
     expenseTrendCategories: uniqueList(source.expenseTrendCategories).slice(0, 5),
+    purchaseGoal: {
+      name: (str(goalSource.name) || defaultGoal.name).slice(0, 30),
+      targetAmount: goalTargetAmount,
+      currentAmount: boundedNumber(
+        goalSource.currentAmount,
+        defaultGoal.currentAmount,
+        0,
+        goalTargetAmount
+      ),
+      targetMonths: boundedNumber(
+        goalSource.targetMonths,
+        defaultGoal.targetMonths,
+        1,
+        360
+      ),
+      monthlySavingAmount: boundedNumber(
+        goalSource.monthlySavingAmount,
+        defaultGoal.monthlySavingAmount,
+        0,
+        1000000000000
+      ),
+      savingsAnnualRate: boundedNumber(
+        goalSource.savingsAnnualRate,
+        defaultGoal.savingsAnnualRate,
+        0,
+        30,
+        0.1
+      ),
+      downPayment: boundedNumber(
+        goalSource.downPayment,
+        defaultGoal.downPayment,
+        0,
+        goalTargetAmount
+      ),
+      installmentMonths: boundedNumber(
+        goalSource.installmentMonths,
+        defaultGoal.installmentMonths,
+        1,
+        180
+      ),
+      installmentAnnualRate: boundedNumber(
+        goalSource.installmentAnnualRate,
+        defaultGoal.installmentAnnualRate,
+        0,
+        50,
+        0.1
+      ),
+    },
   }
 }
 

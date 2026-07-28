@@ -2991,9 +2991,7 @@ function ProductCard({
               />
             )}
           </span>
-          {p.kind !== '비트코인' && (
-            <div className="invest-card-name" title={p.name}>{p.name}</div>
-          )}
+          <div className="invest-card-name" title={p.name}>{p.name}</div>
         </div>
         <div className="invest-card-tools">
           {status && !inlineQuoteStatus && (

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ResponsiveContainer,
   LineChart,
@@ -16,12 +16,15 @@ import {
   Tooltip,
   Legend,
   LabelList,
+  ReferenceLine,
 } from 'recharts'
 import { formatKRW, compactKRW, monthOf, todayStr } from '../lib/format'
 import { exchangeRateMap, projectAssets, stockMetrics, summarize } from '../lib/investments'
+import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
 import { defaultGraphStageSettings, normalizeGraphStageSettings } from '../lib/schema'
 import { useStoredSlice } from '../lib/store'
 import { STORE_PATHS } from '../lib/storePaths'
+import NumberInput from './NumberInput'
 
 const PIE_COLORS = [
   '#6366f1', '#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#ec4899',
@@ -199,6 +202,157 @@ function ProjectionEndpointLabel({ x, y, value, payload, index }) {
   )
 }
 
+function goalMonthlySaving(targetAmount, currentAmount, annualRate, months) {
+  const target = Math.max(0, Number(targetAmount) || 0)
+  const current = Math.min(target, Math.max(0, Number(currentAmount) || 0))
+  const totalMonths = Math.max(1, Math.round(Number(months) || 1))
+  const monthlyRate = Math.max(0, Number(annualRate) || 0) / 100 / 12
+  const currentAtGoal = current * Math.pow(1 + monthlyRate, totalMonths)
+  const gap = Math.max(0, target - currentAtGoal)
+  if (gap <= 0) return 0
+  if (monthlyRate <= 0) return gap / totalMonths
+  return gap * monthlyRate / (Math.pow(1 + monthlyRate, totalMonths) - 1)
+}
+
+function installmentMonthlyPayment(principal, annualRate, months) {
+  const loan = Math.max(0, Number(principal) || 0)
+  const totalMonths = Math.max(1, Math.round(Number(months) || 1))
+  const monthlyRate = Math.max(0, Number(annualRate) || 0) / 100 / 12
+  if (loan <= 0) return 0
+  if (monthlyRate <= 0) return loan / totalMonths
+  const growth = Math.pow(1 + monthlyRate, totalMonths)
+  return loan * monthlyRate * growth / (growth - 1)
+}
+
+function buildPurchaseGoalComparison(goal) {
+  const targetAmount = Math.max(0, Number(goal.targetAmount) || 0)
+  const currentAmount = Math.min(targetAmount, Math.max(0, Number(goal.currentAmount) || 0))
+  const targetMonths = Math.max(1, Math.round(Number(goal.targetMonths) || 1))
+  const monthlySavingAmount = Math.max(0, Number(goal.monthlySavingAmount) || 0)
+  const savingsAnnualRate = Math.max(0, Number(goal.savingsAnnualRate) || 0)
+  const downPayment = Math.min(targetAmount, Math.max(0, Number(goal.downPayment) || 0))
+  const installmentMonths = Math.max(1, Math.round(Number(goal.installmentMonths) || 1))
+  const installmentAnnualRate = Math.max(0, Number(goal.installmentAnnualRate) || 0)
+  const requiredMonthlySaving = goalMonthlySaving(
+    targetAmount,
+    currentAmount,
+    savingsAnnualRate,
+    targetMonths
+  )
+  const loanPrincipal = Math.max(0, targetAmount - downPayment)
+  const monthlyInstallment = installmentMonthlyPayment(
+    loanPrincipal,
+    installmentAnnualRate,
+    installmentMonths
+  )
+  const installmentTotal = downPayment + monthlyInstallment * installmentMonths
+  const installmentInterest = Math.max(0, installmentTotal - targetAmount)
+  const savingsMonthlyRate = savingsAnnualRate / 100 / 12
+  const maxGoalMonths = 600
+  let estimatedGoalMonths = currentAmount >= targetAmount ? 0 : null
+  let goalBalance = currentAmount
+  let totalSavingsContributions = currentAmount
+
+  if (estimatedGoalMonths == null && monthlySavingAmount > 0) {
+    for (let month = 1; month <= maxGoalMonths; month += 1) {
+      goalBalance = goalBalance * (1 + savingsMonthlyRate) + monthlySavingAmount
+      totalSavingsContributions += monthlySavingAmount
+      if (goalBalance >= targetAmount) {
+        estimatedGoalMonths = month
+        break
+      }
+    }
+  }
+
+  const savingsInterest =
+    estimatedGoalMonths == null
+      ? 0
+      : Math.max(0, goalBalance - totalSavingsContributions)
+  const effectiveCashContribution =
+    estimatedGoalMonths == null
+      ? targetAmount
+      : Math.max(0, targetAmount - savingsInterest)
+  const cashAdvantage =
+    estimatedGoalMonths == null
+      ? null
+      : Math.max(0, installmentTotal - effectiveCashContribution)
+  const maxMonths = Math.max(
+    1,
+    Math.min(
+      maxGoalMonths,
+      Math.max(estimatedGoalMonths ?? targetMonths, targetMonths, installmentMonths)
+    )
+  )
+  const data = Array.from({ length: maxMonths + 1 }, (_, month) => {
+    const savingMonth = Math.min(month, estimatedGoalMonths ?? maxMonths)
+    const savingGrowth = Math.pow(1 + savingsMonthlyRate, savingMonth)
+    const savingBalance =
+      savingsMonthlyRate > 0
+        ? currentAmount * savingGrowth +
+          monthlySavingAmount * ((savingGrowth - 1) / savingsMonthlyRate)
+        : currentAmount + monthlySavingAmount * savingMonth
+    const installmentMonth = Math.min(month, installmentMonths)
+    return {
+      month,
+      모아서구매: Math.min(targetAmount, savingBalance),
+      할부누적지출: downPayment + monthlyInstallment * installmentMonth,
+    }
+  })
+
+  return {
+    targetAmount,
+    currentAmount,
+    targetMonths,
+    monthlySavingAmount,
+    savingsAnnualRate,
+    downPayment,
+    installmentMonths,
+    installmentAnnualRate,
+    requiredMonthlySaving,
+    estimatedGoalMonths,
+    monthlyInstallment,
+    installmentTotal,
+    installmentInterest,
+    savingsInterest,
+    cashAdvantage,
+    maxMonths,
+    data,
+  }
+}
+
+function GoalNumberField({
+  value,
+  onCommit,
+  amount = false,
+  decimal = true,
+  ...props
+}) {
+  const [draft, setDraft] = useState(() => String(value ?? ''))
+
+  useEffect(() => {
+    setDraft(String(value ?? ''))
+  }, [value])
+
+  function commit() {
+    const parsed = amount ? parseAmountInput(draft) : parseNumberInput(draft)
+    onCommit(parsed)
+  }
+
+  return (
+    <NumberInput
+      {...props}
+      amount={amount}
+      decimal={decimal}
+      value={draft}
+      onChange={setDraft}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur()
+      }}
+    />
+  )
+}
+
 export default function SummaryStage({ entries, investments }) {
   const today = todayStr()
   const [expenseTrendSettingsOpen, setExpenseTrendSettingsOpen] = useState(false)
@@ -219,6 +373,7 @@ export default function SummaryStage({ entries, investments }) {
     wageGrowth,
     monthlyIncomeInvestmentOverride,
     expenseTrendCategories,
+    purchaseGoal,
   } = graphSettings
 
   function updateGraphSettings(patch) {
@@ -286,6 +441,15 @@ export default function SummaryStage({ entries, investments }) {
 
   function clearExpenseTrendCategories() {
     updateGraphSettings({ expenseTrendCategories: [] })
+  }
+
+  function updatePurchaseGoal(field, value) {
+    updateGraphSettings({
+      purchaseGoal: {
+        ...purchaseGoal,
+        [field]: value,
+      },
+    })
   }
 
   const invest = useMemo(() => summarize(investments, today), [investments, today])
@@ -372,6 +536,20 @@ export default function SummaryStage({ entries, investments }) {
     () => pieData.reduce((sum, item) => sum + (Number(item.value) || 0), 0),
     [pieData]
   )
+  const purchaseGoalComparison = useMemo(
+    () => buildPurchaseGoalComparison(purchaseGoal),
+    [purchaseGoal]
+  )
+  const purchaseGoalScheduleText =
+    purchaseGoalComparison.estimatedGoalMonths == null
+      ? '월 저축 금액을 입력하세요'
+      : purchaseGoalComparison.estimatedGoalMonths === 0
+        ? '현재 마련금액으로 이미 달성'
+        : purchaseGoalComparison.estimatedGoalMonths === purchaseGoalComparison.targetMonths
+          ? '설정한 목표 기간과 일치'
+          : purchaseGoalComparison.estimatedGoalMonths < purchaseGoalComparison.targetMonths
+            ? `목표보다 ${purchaseGoalComparison.targetMonths - purchaseGoalComparison.estimatedGoalMonths}개월 빠름`
+            : `목표보다 ${purchaseGoalComparison.estimatedGoalMonths - purchaseGoalComparison.targetMonths}개월 늦음`
 
   const empty = entries.length === 0 && investments.length === 0
 
@@ -847,6 +1025,261 @@ export default function SummaryStage({ entries, investments }) {
           )}
         </>
       )}
+
+      <section className="card summary-goal-card">
+        <div className="summary-goal-head">
+          <div>
+            <span className="summary-card-kicker">PURCHASE GOAL</span>
+            <h3>목표 구매 비교</h3>
+            <p>입력한 월 저축액의 목표 달성 시점과 할부 구매의 이자 부담을 비교합니다.</p>
+          </div>
+          <div className="summary-goal-verdict">
+            <span>{purchaseGoal.name || '목표'} 예상 비교</span>
+            <strong>
+              {purchaseGoalComparison.cashAdvantage == null
+                ? '월 저축 금액을 입력해 주세요'
+                : purchaseGoalComparison.cashAdvantage > 0
+                ? `모아서 구매 시 ${formatKRW(purchaseGoalComparison.cashAdvantage)} 유리`
+                : '두 방식의 비용 차이가 없습니다'}
+            </strong>
+            <small>
+              할부 총비용 {formatKRW(purchaseGoalComparison.installmentTotal)}
+            </small>
+          </div>
+        </div>
+
+        <div className="summary-goal-config">
+          <section className="summary-goal-config-group">
+            <div className="summary-goal-config-head">
+              <span>01</span>
+              <div>
+                <b>모아서 구매</b>
+                <small>목표 기간과 저축 조건</small>
+              </div>
+            </div>
+            <div className="summary-goal-fields saving">
+              <label className="summary-goal-field name">
+                <span>목표명</span>
+                <input
+                  type="text"
+                  maxLength={30}
+                  value={purchaseGoal.name}
+                  onChange={(e) => updatePurchaseGoal('name', e.target.value)}
+                  placeholder="예: 차량"
+                />
+              </label>
+              <label className="summary-goal-field">
+                <span>목표 금액</span>
+                <GoalNumberField
+                  amount
+                  decimal={false}
+                  value={purchaseGoal.targetAmount}
+                  onCommit={(value) => updatePurchaseGoal('targetAmount', value)}
+                  placeholder="예: 4천만"
+                />
+              </label>
+              <label className="summary-goal-field">
+                <span>현재 마련</span>
+                <GoalNumberField
+                  amount
+                  decimal={false}
+                  value={purchaseGoal.currentAmount}
+                  onCommit={(value) => updatePurchaseGoal('currentAmount', value)}
+                  placeholder="0"
+                />
+              </label>
+              <label className="summary-goal-field">
+                <span>목표 기간</span>
+                <GoalNumberField
+                  decimal={false}
+                  value={purchaseGoal.targetMonths}
+                  onCommit={(value) => updatePurchaseGoal('targetMonths', value)}
+                  placeholder="36"
+                />
+                <small>개월</small>
+              </label>
+              <label className="summary-goal-field">
+                <span>월 저축 금액</span>
+                <GoalNumberField
+                  amount
+                  decimal={false}
+                  value={purchaseGoal.monthlySavingAmount}
+                  onCommit={(value) => updatePurchaseGoal('monthlySavingAmount', value)}
+                  placeholder="예: 100만"
+                />
+              </label>
+              <label className="summary-goal-field">
+                <span>저축 연이율</span>
+                <GoalNumberField
+                  value={purchaseGoal.savingsAnnualRate}
+                  onCommit={(value) => updatePurchaseGoal('savingsAnnualRate', value)}
+                  placeholder="3"
+                />
+                <small>%</small>
+              </label>
+            </div>
+          </section>
+
+          <section className="summary-goal-config-group installment">
+            <div className="summary-goal-config-head">
+              <span>02</span>
+              <div>
+                <b>할부 구매</b>
+                <small>원리금균등 상환 기준</small>
+              </div>
+            </div>
+            <div className="summary-goal-fields installment">
+              <label className="summary-goal-field">
+                <span>선수금</span>
+                <GoalNumberField
+                  amount
+                  decimal={false}
+                  value={purchaseGoal.downPayment}
+                  onCommit={(value) => updatePurchaseGoal('downPayment', value)}
+                  placeholder="예: 1천만"
+                />
+              </label>
+              <label className="summary-goal-field">
+                <span>할부 기간</span>
+                <GoalNumberField
+                  decimal={false}
+                  value={purchaseGoal.installmentMonths}
+                  onCommit={(value) => updatePurchaseGoal('installmentMonths', value)}
+                  placeholder="60"
+                />
+                <small>개월</small>
+              </label>
+              <label className="summary-goal-field">
+                <span>할부 연이율</span>
+                <GoalNumberField
+                  value={purchaseGoal.installmentAnnualRate}
+                  onCommit={(value) => updatePurchaseGoal('installmentAnnualRate', value)}
+                  placeholder="5.5"
+                />
+                <small>%</small>
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <div className="summary-goal-metrics">
+          <article className="saving">
+            <span>입력한 월 저축</span>
+            <strong>{formatKRW(purchaseGoalComparison.monthlySavingAmount)}</strong>
+            <small>
+              목표기간 필요액 {formatKRW(purchaseGoalComparison.requiredMonthlySaving)}
+            </small>
+          </article>
+          <article className="timeline">
+            <span>예상 달성 기간</span>
+            <strong>
+              {purchaseGoalComparison.estimatedGoalMonths == null
+                ? '계산 불가'
+                : purchaseGoalComparison.estimatedGoalMonths === 0
+                  ? '달성'
+                  : `${purchaseGoalComparison.estimatedGoalMonths}개월`}
+            </strong>
+            <small>{purchaseGoalScheduleText}</small>
+          </article>
+          <article className="installment">
+            <span>할부 월 납입</span>
+            <strong>{formatKRW(purchaseGoalComparison.monthlyInstallment)}</strong>
+            <small>선수금 {formatKRW(purchaseGoalComparison.downPayment)}</small>
+          </article>
+          <article className="interest">
+            <span>할부 총이자</span>
+            <strong>{formatKRW(purchaseGoalComparison.installmentInterest)}</strong>
+            <small>총 {formatKRW(purchaseGoalComparison.installmentTotal)}</small>
+          </article>
+        </div>
+
+        <div className="summary-goal-insight">
+          <span>비용 비교</span>
+          <strong>
+            {purchaseGoalComparison.cashAdvantage == null
+              ? '월 저축 금액을 입력하면 구매 비용을 비교할 수 있습니다.'
+              : purchaseGoalComparison.cashAdvantage > 0
+              ? `모아서 구매하는 편이 ${formatKRW(purchaseGoalComparison.cashAdvantage)} 절약됩니다.`
+              : '현재 조건에서는 두 방식의 총비용이 같습니다.'}
+          </strong>
+          <p>
+            저축 이자 효과 {formatKRW(purchaseGoalComparison.savingsInterest)} ·
+            할부 이자 부담 {formatKRW(purchaseGoalComparison.installmentInterest)}
+          </p>
+        </div>
+
+        <div className="summary-goal-chart-head">
+          <div>
+            <h4>현금 마련액과 할부 누적지출</h4>
+            <p>보라색은 모은 금액, 붉은 선은 선수금을 포함한 누적 할부 지출입니다.</p>
+          </div>
+          <span>목표 {formatKRW(purchaseGoalComparison.targetAmount)}</span>
+        </div>
+        <div className="summary-goal-chart">
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart
+              data={purchaseGoalComparison.data}
+              margin={{ top: 14, right: 18, bottom: 5, left: 2 }}
+            >
+              <defs>
+                <linearGradient id="goalSavingFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.015} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid
+                strokeDasharray="3 5"
+                stroke="var(--chart-grid)"
+                vertical={false}
+              />
+              <XAxis
+                dataKey="month"
+                tickFormatter={(value) => `${value}개월`}
+                interval={Math.max(0, Math.floor(purchaseGoalComparison.maxMonths / 6) - 1)}
+                fontSize={11}
+                tickMargin={8}
+              />
+              <YAxis tickFormatter={compactKRW} fontSize={11} width={54} />
+              <Tooltip
+                formatter={tooltipMoney}
+                labelFormatter={(value) => `${value}개월`}
+              />
+              <Legend />
+              <ReferenceLine
+                y={purchaseGoalComparison.targetAmount}
+                stroke="#94a3b8"
+                strokeDasharray="5 5"
+                label={{
+                  value: '목표 금액',
+                  position: 'insideTopRight',
+                  fill: 'var(--muted)',
+                  fontSize: 10,
+                }}
+              />
+              <Area
+                type="monotone"
+                dataKey="모아서구매"
+                name="모아서 구매"
+                stroke="#7c3aed"
+                strokeWidth={2.4}
+                fill="url(#goalSavingFill)"
+              />
+              <Line
+                type="monotone"
+                dataKey="할부누적지출"
+                name="할부 누적지출"
+                stroke="#dc2626"
+                strokeWidth={2.2}
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="summary-goal-footnote">
+          단순 비교용 예상치입니다. 세금·수수료·차량 가격 변동·중도상환 조건은 포함하지 않습니다.
+        </p>
+      </section>
     </div>
   )
 }
