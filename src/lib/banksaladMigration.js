@@ -443,12 +443,36 @@ export function parseBanksaladWorkbook(input) {
   }
 }
 
-export function migrateBanksaladWorkbook(input, baseDocument) {
-  const parsed = parseBanksaladWorkbook(input)
-  const converted = convertRecords(parsed.records)
+function recordMonth(record) {
+  return parseDate(record.날짜).slice(0, 7)
+}
+
+// Summarizes how many income/expense rows fall in each month, so an import
+// picker can let the user pick a subset of months before committing.
+export function summarizeBanksaladMonths(records) {
+  const converted = convertRecords(records)
+  const byMonth = new Map()
+  const bump = (date, key) => {
+    const month = str(date).slice(0, 7)
+    if (!month) return
+    if (!byMonth.has(month)) {
+      byMonth.set(month, { month, incomeCount: 0, expenseCount: 0 })
+    }
+    byMonth.get(month)[key] += 1
+  }
+  converted.incomeEntries.forEach((entry) => bump(entry.date, 'incomeCount'))
+  converted.expenseEntries.forEach((entry) => bump(entry.date, 'expenseCount'))
+  return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month))
+}
+
+export function buildBanksaladMigration(parsed, baseDocument, months) {
+  const records = months
+    ? parsed.records.filter((record) => months.has(recordMonth(record)))
+    : parsed.records
+  const converted = convertRecords(records)
   const importedCount = converted.incomeEntries.length + converted.expenseEntries.length
   if (!importedCount) {
-    throw new Error('가져올 수입·지출 내역이 없습니다. 뱅크샐러드 파일 내용을 확인해 주세요.')
+    throw new Error('가져올 수입·지출 내역이 없습니다. 선택한 월의 내용을 확인해 주세요.')
   }
 
   const document = buildMigrationDocument(baseDocument, converted, parsed.assetProducts)
@@ -485,4 +509,9 @@ export function migrateBanksaladWorkbook(input, baseDocument) {
       expenseCategoryCount: converted.expenseCategories.length,
     },
   }
+}
+
+export function migrateBanksaladWorkbook(input, baseDocument) {
+  const parsed = parseBanksaladWorkbook(input)
+  return buildBanksaladMigration(parsed, baseDocument)
 }

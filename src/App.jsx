@@ -21,6 +21,7 @@ import IncomeManagementStage from './components/IncomeManagementStage'
 import SummaryStage from './components/SummaryStage'
 import TaxSettlementStage from './components/TaxSettlementStage'
 import SettingsModal from './components/SettingsModal'
+import BanksaladImportModal from './components/BanksaladImportModal'
 import {
   clearStoredData as clearAppStoredData,
   exportDocument,
@@ -99,6 +100,7 @@ export default function App() {
   )
   const [stageOpen, setStageOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [banksaladImport, setBanksaladImport] = useState(null)
   const [dragStage, setDragStage] = useState('')
   const [theme, setTheme] = useStoredSlice(STORE_PATHS.settings.theme, 'light')
   const stageLongPressRef = useRef({
@@ -283,12 +285,39 @@ export default function App() {
   }
 
   async function importBanksaladXlsx(file) {
-    let migration
+    let parsed
+    let months
     try {
-      const { migrateBanksaladWorkbook } = await import('./lib/banksaladMigration')
-      migration = migrateBanksaladWorkbook(await file.arrayBuffer(), exportDocument())
+      const { parseBanksaladWorkbook, summarizeBanksaladMonths } = await import(
+        './lib/banksaladMigration'
+      )
+      parsed = parseBanksaladWorkbook(await file.arrayBuffer())
+      months = summarizeBanksaladMonths(parsed.records)
     } catch (error) {
       alert(error?.message || '뱅크샐러드 xlsx 파일을 읽지 못했습니다.')
+      return
+    }
+
+    if (!months.length) {
+      alert('가져올 수입·지출 내역이 없습니다. 뱅크샐러드 파일 내용을 확인해 주세요.')
+      return
+    }
+
+    setBanksaladImport({ parsed, months, fileName: file.name })
+  }
+
+  async function confirmBanksaladImport(selectedMonths) {
+    if (!banksaladImport) return
+    let migration
+    try {
+      const { buildBanksaladMigration } = await import('./lib/banksaladMigration')
+      migration = buildBanksaladMigration(
+        banksaladImport.parsed,
+        exportDocument(),
+        new Set(selectedMonths)
+      )
+    } catch (error) {
+      alert(error?.message || '가져올 내역이 없습니다.')
       return
     }
 
@@ -304,13 +333,14 @@ export default function App() {
       : ''
     if (
       !window.confirm(
-        `뱅크샐러드 xlsx에서 수입 ${summary.incomeCount}건, 지출 ${summary.expenseCount}건, 결제수단 ${summary.paymentMethodCount}개${cardMatchText}${assetText}를 가져옵니다.${skippedText}\n현재 수입·지출·고정수입·고정지출은 이 내역으로 교체하고, 뱅크샐러드 자동 자산은 최신 값으로 갱신합니다.\n계속할까요?`
+        `선택한 월에서 수입 ${summary.incomeCount}건, 지출 ${summary.expenseCount}건, 결제수단 ${summary.paymentMethodCount}개${cardMatchText}${assetText}를 가져옵니다.${skippedText}\n현재 수입·지출·고정수입·고정지출은 이 내역으로 교체하고, 뱅크샐러드 자동 자산은 최신 값으로 갱신합니다.\n계속할까요?`
       )
     ) {
       return
     }
 
     importBackupDocument(migration.document)
+    setBanksaladImport(null)
     setSettingsOpen(false)
     setTab('그래프')
   }
@@ -716,6 +746,15 @@ export default function App() {
           importAccept={LOCAL_IMPORT_ACCEPT}
           monthDeletionSummary={monthDeletionSummary}
           maxDeleteMonth={currentMonth}
+        />
+      )}
+
+      {banksaladImport && (
+        <BanksaladImportModal
+          fileName={banksaladImport.fileName}
+          months={banksaladImport.months}
+          onCancel={() => setBanksaladImport(null)}
+          onConfirm={confirmBanksaladImport}
         />
       )}
 
