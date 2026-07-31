@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatKRW } from '../lib/format'
 import { parseNumberInput } from '../lib/numberInput'
+import { withUndo } from '../lib/store'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 import {
   CARD_PRODUCT_CATALOG,
   CARD_PRODUCT_CATALOG_META,
@@ -65,6 +67,7 @@ export default function PaymentMethodManager({
   const [form, setForm] = useState(blankForm)
   const [cardQuery, setCardQuery] = useState('')
   const [cardSearchOpen, setCardSearchOpen] = useState(false)
+  useEscapeDismiss(() => setCardSearchOpen(false), cardSearchOpen)
   const [manualOpen, setManualOpen] = useState(false)
   const [listQuery, setListQuery] = useState('')
   const editing = Boolean(form.id)
@@ -160,7 +163,7 @@ export default function PaymentMethodManager({
 
   function deleteMethod(method) {
     if (window.confirm(`결제수단 '${method.name}'을(를) 삭제할까요?`)) {
-      removeMethod(method.id)
+      withUndo(`결제수단 '${method.name}' 삭제`, () => removeMethod(method.id))
       if (form.id === method.id) resetForm()
     }
   }

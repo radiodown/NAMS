@@ -5,7 +5,8 @@ import { useFixedIncomes } from './lib/useFixedIncomes'
 import { useInvestments } from './lib/useInvestments'
 import { useCategories } from './lib/useCategories'
 import { usePaymentMethods } from './lib/usePaymentMethods'
-import { formatKRW, monthOf, todayStr } from './lib/format'
+import { useEscapeDismiss } from './lib/useEscapeDismiss'
+import { monthOf, todayStr } from './lib/format'
 import { STAGE_META, INVEST_COLOR, SUMMARY_COLOR, TAX_COLOR } from './lib/categories'
 import {
   fixedExpenseEntriesForMonth,
@@ -22,10 +23,12 @@ import SummaryStage from './components/SummaryStage'
 import TaxSettlementStage from './components/TaxSettlementStage'
 import SettingsModal from './components/SettingsModal'
 import BanksaladImportModal from './components/BanksaladImportModal'
+import UndoToast from './components/UndoToast'
 import {
   clearStoredData as clearAppStoredData,
   exportDocument,
   useStoredSlice,
+  withUndo,
 } from './lib/store'
 import {
   STAGE_TABS as TABS,
@@ -63,6 +66,12 @@ const TAB_COLOR = {
 const BANKSALAD_XLSX_ACCEPT =
   '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 const LOCAL_IMPORT_ACCEPT = `${BACKUP_ACCEPT},${BANKSALAD_XLSX_ACCEPT}`
+const BANKSALAD_SKIP_REASON_LABEL = {
+  unsupportedType: '이체 등 수입·지출이 아닌 항목',
+  unsupportedCurrency: '원화(KRW)가 아닌 외화 내역',
+  invalidDate: '날짜를 인식할 수 없는 내역',
+  zeroAmount: '금액이 0원인 내역',
+}
 const STAGE_LONG_PRESS_MS = 520
 const STAGE_LONG_PRESS_MOVE_CANCEL = 12
 
@@ -99,6 +108,7 @@ export default function App() {
     defaultFixedSectionSettings
   )
   const [stageOpen, setStageOpen] = useState(false)
+  useEscapeDismiss(() => setStageOpen(false), stageOpen)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [banksaladImport, setBanksaladImport] = useState(null)
   const [dragStage, setDragStage] = useState('')
@@ -322,18 +332,12 @@ export default function App() {
     }
 
     const { summary } = migration
-    const skippedText = summary.skippedCount
-      ? `\n이체 등 NAMS 거래로 넣지 않는 내역 ${summary.skippedCount}건은 제외됩니다.`
-      : ''
-    const assetText = summary.assetCount
-      ? `, 자산 ${summary.assetCount}개(${formatKRW(summary.assetValueTotal)})`
-      : ''
     const cardMatchText = summary.cardProductMatchCount
       ? `, 카드상품 매칭 ${summary.cardProductMatchCount}개`
       : ''
     if (
       !window.confirm(
-        `선택한 월에서 수입 ${summary.incomeCount}건, 지출 ${summary.expenseCount}건, 결제수단 ${summary.paymentMethodCount}개${cardMatchText}${assetText}를 가져옵니다.${skippedText}\n현재 수입·지출·고정수입·고정지출은 이 내역으로 교체하고, 뱅크샐러드 자동 자산은 최신 값으로 갱신합니다.\n계속할까요?`
+        `선택한 월에서 수입 ${summary.incomeCount}건, 지출 ${summary.expenseCount}건을 현재 수입·지출 내역에 추가합니다${cardMatchText}.\n결제수단은 이름이 같으면 기존 결제수단을 그대로 쓰고, 없는 이름만 새로 추가합니다.\n계속할까요?`
       )
     ) {
       return
@@ -343,6 +347,13 @@ export default function App() {
     setBanksaladImport(null)
     setSettingsOpen(false)
     setTab('그래프')
+
+    if (summary.skippedCount) {
+      const lines = Object.entries(summary.skippedByReason)
+        .map(([reason, count]) => `- ${BANKSALAD_SKIP_REASON_LABEL[reason] || reason}: ${count}건`)
+        .join('\n')
+      window.alert(`뱅크샐러드 내역 중 ${summary.skippedCount}건은 추가되지 않았습니다.\n${lines}`)
+    }
   }
 
   function importJSON(file) {
@@ -621,15 +632,17 @@ export default function App() {
       return false
     }
 
-    ledger.replaceAll(
-      transactionEntries.filter((entry) => monthOf(entry.date) !== normalizedMonth)
-    )
-    fixedIncome.replaceRecords(
-      fixedIncome.records.filter((record) => record.month !== normalizedMonth)
-    )
-    fixed.replaceRecords(
-      fixed.records.filter((record) => record.month !== normalizedMonth)
-    )
+    withUndo(`${label} 데이터 삭제`, () => {
+      ledger.replaceAll(
+        transactionEntries.filter((entry) => monthOf(entry.date) !== normalizedMonth)
+      )
+      fixedIncome.replaceRecords(
+        fixedIncome.records.filter((record) => record.month !== normalizedMonth)
+      )
+      fixed.replaceRecords(
+        fixed.records.filter((record) => record.month !== normalizedMonth)
+      )
+    })
     return true
   }
 
@@ -749,6 +762,8 @@ export default function App() {
         />
       )}
 
+      <UndoToast />
+
       {banksaladImport && (
         <BanksaladImportModal
           fileName={banksaladImport.fileName}
@@ -859,6 +874,8 @@ export default function App() {
             fixedItems={fixed.items}
             fixedRecords={fixed.records}
             fixedIncomeItems={fixedIncome.items}
+            categories={categoryStore.categories.지출}
+            categoryIcons={categoryStore.icons.지출}
             paymentMethods={paymentMethods}
             updatePaymentMethod={updatePaymentMethodEverywhere}
             replacePaymentMethod={replacePaymentMethodEverywhere}
@@ -887,9 +904,11 @@ export default function App() {
             fixedIncomeEntries={currentFixedIncomeEntries}
             previousFixedIncomeEntries={previousFixedIncomeEntries}
             categories={categoryStore.categories[tab] || STAGE_META[tab].categories}
+            categoryIcons={categoryStore.icons[tab] || {}}
             addCategory={categoryStore.addCategory}
             updateCategory={updateCategoryEverywhere}
             removeCategory={categoryStore.removeCategory}
+            setCategoryIcon={categoryStore.setCategoryIcon}
             paymentMethods={paymentMethods.items}
             addPaymentMethod={paymentMethods.addItem}
             updatePaymentMethod={updatePaymentMethodEverywhere}

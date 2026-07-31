@@ -43,8 +43,6 @@ console.log(
     `sheet=${summary.sheetName}`,
     `income=${summary.incomeCount}`,
     `expense=${summary.expenseCount}`,
-    `assets=${summary.assetCount}`,
-    `assetValue=${Math.round(summary.assetValueTotal).toLocaleString('ko-KR')}`,
     `skipped=${summary.skippedCount}`,
     `paymentMethods=${summary.paymentMethodCount}`,
   ].join(' ')

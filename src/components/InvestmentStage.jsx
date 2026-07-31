@@ -23,6 +23,7 @@ import {
 import { compactKRW, formatKRW, todayStr } from '../lib/format'
 import { exchangeRateMap, productMetrics, stockMetrics, summarize } from '../lib/investments'
 import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 import {
   fetchExchangeRate,
   fetchStockHistory,
@@ -31,7 +32,7 @@ import {
   normalizeCurrencyCode,
   normalizeStockSymbol,
 } from '../lib/quotes'
-import { useStoredSlice } from '../lib/store'
+import { useStoredSlice, withUndo } from '../lib/store'
 import { STORE_PATHS } from '../lib/storePaths'
 import CalendarInput from './CalendarInput'
 import NumberInput from './NumberInput'
@@ -594,6 +595,7 @@ export default function InvestmentStage({ investments }) {
   const [form, setForm] = useState(() => blankForm('예금'))
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
+  useEscapeDismiss(cancelEdit, formOpen)
   const [quoteStatus, setQuoteStatus] = useState({})
   const [activeChartId, setActiveChartId] = useState(null)
   const [rawStageSettings, setStageSettings] = useStoredSlice(
@@ -607,6 +609,7 @@ export default function InvestmentStage({ investments }) {
   const analysisOpen = stageSettings.analysisOpen
   const [stockSearch, setStockSearch] = useState({ state: 'idle', query: '', items: [], error: '' })
   const [stockSearchOpen, setStockSearchOpen] = useState(false)
+  useEscapeDismiss(() => setStockSearchOpen(false), stockSearchOpen)
   const [stockSearchLockedQuery, setStockSearchLockedQuery] = useState('')
   const stockSymbolLookupRef = useRef('')
   const stockSearchRunRef = useRef(0)
@@ -1269,7 +1272,7 @@ export default function InvestmentStage({ investments }) {
 
   function handleRemove(p) {
     if (window.confirm(`투자 상품 '${p.name}'을(를) 삭제할까요?`)) {
-      removeItem(p.id)
+      withUndo(`투자 상품 '${p.name}' 삭제`, () => removeItem(p.id))
       if (editingId === p.id) cancelEdit()
       if (activeChartId === p.id) setActiveChartId(null)
     }
@@ -2647,6 +2650,7 @@ function InvestmentGroupCard({
 }
 
 function InvestmentGroupFolder({ group, accent, today, rates, onClose }) {
+  useEscapeDismiss(onClose)
   const returnPct = group.cost > 0 ? (group.profit / group.cost) * 100 : 0
 
   return (

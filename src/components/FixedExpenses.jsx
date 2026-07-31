@@ -5,6 +5,8 @@ import { createId } from '../lib/id'
 import { daysUntilInstallmentDue, isInstallmentCategory } from '../lib/installment'
 import { isLoanInterestCategory } from '../lib/loanInterest'
 import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
+import { withUndo } from '../lib/store'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 import CalendarInput from './CalendarInput'
 import CategoryInput from './CategoryInput'
 import LoanInterestCalculator from './LoanInterestCalculator'
@@ -190,6 +192,7 @@ export default function FixedExpenses({
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
+  useEscapeDismiss(cancelEdit, formOpen)
   const [categoryAddOpen, setCategoryAddOpen] = useState(false)
   const [categoryDraft, setCategoryDraft] = useState('')
   const [draggingId, setDraggingId] = useState(null)
@@ -440,7 +443,7 @@ export default function FixedExpenses({
         `${fixedLabel} '${itemName(it)}'을(를) 삭제할까요?`
       )
     ) {
-      removeItem(it.id)
+      withUndo(`${fixedLabel} '${itemName(it)}' 삭제`, () => removeItem(it.id))
       if (editingId === it.id) cancelEdit()
     }
   }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 
 function normalizeOption(option) {
   if (typeof option === 'string') return { value: option, label: option }
@@ -10,6 +11,7 @@ function normalizeOption(option) {
 
 export default function Picker({ value = '', options = [], placeholder = '선택', onChange, ariaLabel }) {
   const [open, setOpen] = useState(false)
+  useEscapeDismiss(() => setOpen(false), open)
   const normalized = useMemo(() => options.map(normalizeOption), [options])
   const selected = normalized.find((option) => String(option.value) === String(value))
 

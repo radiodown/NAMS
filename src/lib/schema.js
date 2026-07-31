@@ -2,6 +2,7 @@
 // Imported backups and older local documents flow through here so the stored
 // shape stays consistent.
 import { STAGE_META } from './categories'
+import { normalizeCategoryIcon } from './categoryPresentation'
 import { createId } from './id'
 import { normalizeMockPortfolio } from './mockInvestment'
 import { isLoanInterestCategory, normalizeLoanMethod } from './loanInterest'
@@ -63,6 +64,15 @@ const MONTH_RE = /^\d{4}-\d{2}$/
 
 export function uniqueList(list) {
   return [...new Set(arr(list).map((v) => str(v)).filter(Boolean))]
+}
+
+export function normalizeCategoryIcons(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([name, icon]) => [str(name), normalizeCategoryIcon(icon)])
+      .filter(([name]) => Boolean(name))
+  )
 }
 
 function normalizeLoanCalculator(source, category) {
@@ -549,11 +559,13 @@ export function buildDefaultDoc() {
     stages: {
       income: {
         categories: defaultCategories('수입'),
+        categoryIcons: {},
         entries: [],
         fixed: { templates: [], records: [], closedMonths: [], lastActiveMonth: '' },
       },
       expense: {
         categories: defaultCategories('지출'),
+        categoryIcons: {},
         paymentMethods: defaultMethods(),
         entries: [],
         fixed: { templates: [], records: [], closedMonths: [], lastActiveMonth: '' },
@@ -604,6 +616,7 @@ export function normalizeDoc(raw) {
     stages: {
       income: {
         categories: categoriesOrDefault(income.categories, '수입'),
+        categoryIcons: normalizeCategoryIcons(income.categoryIcons),
         entries: arr(income.entries).map(normalizeEntry),
         fixed: {
           templates: arr(incomeFixed.templates).map(normalizeTemplate),
@@ -614,6 +627,7 @@ export function normalizeDoc(raw) {
       },
       expense: {
         categories: categoriesOrDefault(expense.categories, '지출'),
+        categoryIcons: normalizeCategoryIcons(expense.categoryIcons),
         paymentMethods: arr(expense.paymentMethods).map(normalizeMethod),
         entries: arr(expense.entries).map(normalizeEntry),
         fixed: {

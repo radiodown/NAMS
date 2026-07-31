@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { compactKRW, formatKRW, todayStr } from '../lib/format'
 import { parseNumberInput } from '../lib/numberInput'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 import {
   fetchExchangeRate,
   fetchStockHistory,
@@ -74,6 +75,7 @@ export default function MockInvestmentStage({ mockInvest }) {
   const [cashInput, setCashInput] = useState(() => String(portfolio.startingCash || ''))
   const [search, setSearch] = useState({ query: '', state: 'idle', items: [], error: '' })
   const [searchOpen, setSearchOpen] = useState(false)
+  useEscapeDismiss(() => setSearchOpen(false), searchOpen)
   const [selected, setSelected] = useState(null)
   const [tradeForm, setTradeForm] = useState({
     units: '',
@@ -86,6 +88,7 @@ export default function MockInvestmentStage({ mockInvest }) {
   const [fxHistory, setFxHistory] = useState(() => new Map())
   const [historyState, setHistoryState] = useState('idle')
   const [historyOpen, setHistoryOpen] = useState(false)
+  useEscapeDismiss(() => setHistoryOpen(false), historyOpen)
   const lockedQueryRef = useRef('')
   const searchRunRef = useRef(0)
 

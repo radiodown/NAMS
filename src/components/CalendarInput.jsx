@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
@@ -98,6 +99,7 @@ export default function CalendarInput({
   max = '',
 }) {
   const [open, setOpen] = useState(false)
+  useEscapeDismiss(() => setOpen(false), open)
   const [visible, setVisible] = useState(() => {
     const parsed = parseValue(value, mode)
     const base = parsed || new Date()

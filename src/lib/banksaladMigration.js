@@ -5,22 +5,18 @@ import {
   defaultMethods,
   normalizeDoc,
   normalizeEntry,
-  normalizeInvestment,
   normalizeMethod,
 } from './schema'
 import { CARD_PRODUCT_CATALOG } from './cardProductCatalog.generated'
 import { cardProductMethodPatch, findCardProductMatch } from './cardProductMatch'
 
 export const BANKSALAD_SHEET_NAME = '가계부 내역'
-export const BANKSALAD_SUMMARY_SHEET_NAME = '뱅샐현황'
 export const BANKSALAD_ACCEPT =
   '.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 const REQUIRED_HEADERS = ['날짜', '타입', '대분류', '소분류', '내용', '금액', '화폐', '결제수단']
 const SUPPORTED_TYPES = new Set(['수입', '지출'])
 const EMPTY_CATEGORY = '미분류'
-const BANKSALAD_ASSET_ID_PREFIX = 'banksalad-asset'
-const SECTION_HEADING_RE = /^\d+\./
 
 function str(value) {
   return String(value ?? '').trim()
@@ -86,34 +82,6 @@ function findBanksaladSheet(workbook) {
   throw new Error('뱅크샐러드 가계부 내역 시트를 찾지 못했습니다.')
 }
 
-function isSectionHeading(value) {
-  return SECTION_HEADING_RE.test(str(value))
-}
-
-function rowsForSection(rows, sectionTitle) {
-  const start = rows.findIndex((row) => str(row[0]).startsWith(sectionTitle))
-  if (start < 0) return []
-  const next = rows.findIndex((row, index) => index > start && isSectionHeading(row[0]))
-  return rows.slice(start, next < 0 ? rows.length : next)
-}
-
-function findBanksaladSummarySheet(workbook) {
-  const preferred = workbook.Sheets[BANKSALAD_SUMMARY_SHEET_NAME]
-  if (preferred) {
-    const rows = sheetRows(preferred)
-    if (rowsForSection(rows, '3.재무현황').length > 0) {
-      return { name: BANKSALAD_SUMMARY_SHEET_NAME, rows }
-    }
-  }
-
-  for (const name of workbook.SheetNames || []) {
-    const rows = sheetRows(workbook.Sheets[name])
-    if (rowsForSection(rows, '3.재무현황').length > 0) return { name, rows }
-  }
-
-  return { name: '', rows: [] }
-}
-
 function recordsFromRows(rows) {
   const start = headerIndex(rows)
   if (start < 0) throw new Error('뱅크샐러드 가계부 컬럼을 찾지 못했습니다.')
@@ -166,14 +134,6 @@ function parseAmount(value) {
   return Number.isFinite(cleaned) ? cleaned : 0
 }
 
-function latestRecordDate(records) {
-  return records
-    .map((record) => parseDate(record.날짜))
-    .filter(Boolean)
-    .sort()
-    .at(-1) || ''
-}
-
 function pickCategory(record) {
   const major = str(record.대분류)
   const minor = str(record.소분류)
@@ -212,94 +172,8 @@ function mergePaymentMethods(importedMethods) {
   return [...byName.values()]
 }
 
-function emptyFixedState() {
-  return { templates: [], records: [], closedMonths: [], lastActiveMonth: '' }
-}
-
 function addSkip(skipped, reason, record) {
   skipped.push({ reason, rowNumber: record.rowNumber })
-}
-
-function investmentDetailsByName(rows) {
-  const section = rowsForSection(rows, '5.투자현황')
-  const headerIndex = section.findIndex(
-    (row) => str(row[0]) === '투자상품종류' && str(row[2]) === '상품명'
-  )
-  if (headerIndex < 0) return new Map()
-
-  const map = new Map()
-  section.slice(headerIndex + 1).forEach((row) => {
-    const productType = str(row[0])
-    const name = str(row[2])
-    if (!name || productType === '총계') return
-    map.set(name, {
-      productType,
-      institution: str(row[1]),
-      assetCost: parseAmount(row[4]),
-      assetValue: parseAmount(row[5]),
-      returnPct: str(row[6]),
-    })
-  })
-  return map
-}
-
-function financialAssetRows(rows) {
-  const section = rowsForSection(rows, '3.재무현황')
-  const headerIndex = section.findIndex(
-    (row) => str(row[0]) === '항목' && str(row[1]) === '상품명' && str(row[3]) === '금액'
-  )
-  if (headerIndex < 0) return []
-
-  const assets = []
-  let currentCategory = ''
-  section.slice(headerIndex + 1).some((row) => {
-    const categoryCell = str(row[0])
-    const name = str(row[1])
-    const amount = parseAmount(row[3])
-
-    if (categoryCell === '총자산' || categoryCell === '순자산') return true
-    if (categoryCell) currentCategory = categoryCell
-
-    if (!name) return false
-    if (amount <= 0) return false
-
-    assets.push({
-      category: currentCategory || '기타 자산',
-      name,
-      amount,
-    })
-    return false
-  })
-  return assets
-}
-
-function buildAssetMemo(asset, detail) {
-  return uniqueList([
-    '뱅크샐러드 재무현황',
-    detail?.institution,
-    detail?.productType,
-    detail?.returnPct ? `수익률 ${detail.returnPct}%` : '',
-    asset.category,
-  ]).join(' · ')
-}
-
-function convertAssets(rows, valuationDate) {
-  const details = investmentDetailsByName(rows)
-  return financialAssetRows(rows).map((asset) => {
-    const detail = details.get(asset.name)
-    const assetValue = detail?.assetValue > 0 ? detail.assetValue : asset.amount
-    const assetCost = detail?.assetCost > 0 ? detail.assetCost : assetValue
-    return normalizeInvestment({
-      id: stableId(BANKSALAD_ASSET_ID_PREFIX, [asset.category, asset.name]),
-      kind: '자산',
-      name: asset.name,
-      date: valuationDate,
-      memo: buildAssetMemo(asset, detail),
-      assetType: asset.category,
-      assetValue,
-      assetCost,
-    })
-  })
 }
 
 function convertRecords(records) {
@@ -396,35 +270,63 @@ function convertRecords(records) {
   }
 }
 
-function isBanksaladAssetProduct(product) {
-  return str(product?.id).startsWith(`${BANKSALAD_ASSET_ID_PREFIX}-`)
+function mergeCategories(existing, added) {
+  return uniqueList([...existing, ...added])
 }
 
-function buildMigrationDocument(baseDocument, converted, assetProducts) {
+// Adds imported entries to the existing list, keyed by id so re-importing an
+// already-imported row (e.g. overlapping month ranges) updates it in place
+// instead of duplicating it.
+function mergeEntries(existing, added) {
+  const byId = new Map(existing.map((entry) => [entry.id, entry]))
+  added.forEach((entry) => byId.set(entry.id, entry))
+  return [...byId.values()]
+}
+
+// Keeps the user's existing payment methods (so their ids/settings survive)
+// and only appends methods that don't already exist by name. Returns the
+// merged list plus a name -> id map used to repoint imported entries at the
+// existing method id when one already exists.
+function reconcilePaymentMethods(existing, imported) {
+  const methods = [...existing]
+  const idByName = new Map(existing.map((method) => [method.name, method.id]))
+  imported.forEach((method) => {
+    if (idByName.has(method.name)) return
+    idByName.set(method.name, method.id)
+    methods.push(method)
+  })
+  return { methods, idByName }
+}
+
+function repointPaymentMethod(entry, idByName) {
+  if (!entry.paymentMethod) return entry
+  const id = idByName.get(entry.paymentMethod)
+  if (!id || id === entry.paymentMethodId) return entry
+  return { ...entry, paymentMethodId: id }
+}
+
+function buildMigrationDocument(baseDocument, converted) {
   const doc = normalizeDoc(baseDocument || buildDefaultDoc())
-  const existingProducts = doc.stages.investment.products.filter(
-    (product) => !isBanksaladAssetProduct(product)
+  const { methods: paymentMethods, idByName } = reconcilePaymentMethods(
+    doc.stages.expense.paymentMethods,
+    converted.paymentMethods
   )
+  const expenseEntries = converted.expenseEntries.map((entry) => repointPaymentMethod(entry, idByName))
+
   return normalizeDoc({
     ...doc,
     stages: {
       ...doc.stages,
       income: {
         ...doc.stages.income,
-        categories: converted.incomeCategories,
-        entries: converted.incomeEntries,
-        fixed: emptyFixedState(),
+        categories: mergeCategories(doc.stages.income.categories, converted.incomeCategories),
+        entries: mergeEntries(doc.stages.income.entries, converted.incomeEntries),
       },
       expense: {
         ...doc.stages.expense,
-        categories: converted.expenseCategories,
-        paymentMethods: converted.paymentMethods,
-        entries: converted.expenseEntries,
-        fixed: emptyFixedState(),
-      },
-      investment: {
-        ...doc.stages.investment,
-        products: [...existingProducts, ...assetProducts],
+        categories: mergeCategories(doc.stages.expense.categories, converted.expenseCategories),
+        paymentMethods,
+        entries: mergeEntries(doc.stages.expense.entries, expenseEntries),
       },
     },
   })
@@ -433,13 +335,10 @@ function buildMigrationDocument(baseDocument, converted, assetProducts) {
 export function parseBanksaladWorkbook(input) {
   const workbook = readWorkbook(input)
   const sheet = findBanksaladSheet(workbook)
-  const summarySheet = findBanksaladSummarySheet(workbook)
   const records = recordsFromRows(sheet.rows)
   return {
     sheetName: sheet.name,
     records,
-    assetSheetName: summarySheet.name,
-    assetProducts: convertAssets(summarySheet.rows, latestRecordDate(records)),
   }
 }
 
@@ -475,32 +374,20 @@ export function buildBanksaladMigration(parsed, baseDocument, months) {
     throw new Error('가져올 수입·지출 내역이 없습니다. 선택한 월의 내용을 확인해 주세요.')
   }
 
-  const document = buildMigrationDocument(baseDocument, converted, parsed.assetProducts)
+  const document = buildMigrationDocument(baseDocument, converted)
   const skippedByReason = converted.skippedRows.reduce((acc, row) => {
     acc[row.reason] = (acc[row.reason] || 0) + 1
     return acc
   }, {})
-  const assetValueTotal = parsed.assetProducts.reduce(
-    (sum, product) => sum + (Number(product.assetValue) || 0),
-    0
-  )
-  const assetCostTotal = parsed.assetProducts.reduce(
-    (sum, product) => sum + (Number(product.assetCost) || 0),
-    0
-  )
 
   return {
     document,
     summary: {
       sheetName: parsed.sheetName,
-      assetSheetName: parsed.assetSheetName,
       sourceRows: parsed.records.length,
       importedCount,
       incomeCount: converted.incomeEntries.length,
       expenseCount: converted.expenseEntries.length,
-      assetCount: parsed.assetProducts.length,
-      assetValueTotal,
-      assetCostTotal,
       skippedCount: converted.skippedRows.length,
       skippedByReason,
       paymentMethodCount: converted.paymentMethods.length,

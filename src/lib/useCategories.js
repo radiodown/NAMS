@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react'
+import { normalizeCategoryIcon } from './categoryPresentation'
 import { defaultCategories, uniqueList } from './schema'
 import { useStoredSlice } from './store'
 import { STORE_PATHS } from './storePaths'
@@ -12,12 +13,22 @@ export function useCategories() {
   const [expense, setExpense] = useStoredSlice(STORE_PATHS.expense.categories, () =>
     defaultCategories('지출')
   )
+  const [incomeIcons, setIncomeIcons] = useStoredSlice(STORE_PATHS.income.categoryIcons, {})
+  const [expenseIcons, setExpenseIcons] = useStoredSlice(STORE_PATHS.expense.categoryIcons, {})
 
   const categories = useMemo(() => ({ 수입: income, 지출: expense }), [income, expense])
+  const icons = useMemo(
+    () => ({ 수입: incomeIcons || {}, 지출: expenseIcons || {} }),
+    [expenseIcons, incomeIcons]
+  )
 
   const setterFor = useCallback(
     (type) => (type === '수입' ? setIncome : type === '지출' ? setExpense : null),
     [setIncome, setExpense]
+  )
+  const iconSetterFor = useCallback(
+    (type) => (type === '수입' ? setIncomeIcons : type === '지출' ? setExpenseIcons : null),
+    [setExpenseIcons, setIncomeIcons]
   )
 
   const addCategory = useCallback(
@@ -36,23 +47,61 @@ export function useCategories() {
       const from = String(oldName || '').trim()
       const to = String(nextName || '').trim()
       const setter = setterFor(type)
-      if (!from || !to || !setter) return false
+      const iconSetter = iconSetterFor(type)
+      if (!from || !to || !setter || !iconSetter) return false
       setter((prev) => uniqueList((prev || []).map((c) => (c === from ? to : c))))
+      if (from !== to) {
+        iconSetter((prev) => {
+          const next = { ...(prev || {}) }
+          if (Object.prototype.hasOwnProperty.call(next, from)) {
+            if (!Object.prototype.hasOwnProperty.call(next, to)) next[to] = next[from]
+            delete next[from]
+          }
+          return next
+        })
+      }
       return true
     },
-    [setterFor]
+    [iconSetterFor, setterFor]
   )
 
   const removeCategory = useCallback(
     (type, name) => {
       const target = String(name || '').trim()
       const setter = setterFor(type)
-      if (!target || !setter) return false
+      const iconSetter = iconSetterFor(type)
+      if (!target || !setter || !iconSetter) return false
       setter((prev) => (prev || []).filter((c) => c !== target))
+      iconSetter((prev) => {
+        const next = { ...(prev || {}) }
+        delete next[target]
+        return next
+      })
       return true
     },
-    [setterFor]
+    [iconSetterFor, setterFor]
   )
 
-  return { categories, addCategory, updateCategory, removeCategory }
+  const setCategoryIcon = useCallback(
+    (type, name, icon) => {
+      const target = String(name || '').trim()
+      const setter = iconSetterFor(type)
+      if (!target || !setter) return false
+      setter((prev) => ({
+        ...(prev || {}),
+        [target]: normalizeCategoryIcon(icon),
+      }))
+      return true
+    },
+    [iconSetterFor]
+  )
+
+  return {
+    categories,
+    icons,
+    addCategory,
+    updateCategory,
+    removeCategory,
+    setCategoryIcon,
+  }
 }

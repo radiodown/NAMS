@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { STAGE_META } from '../lib/categories'
+import { categoryIcon } from '../lib/categoryPresentation'
 import { formatKRW, monthOf, todayStr } from '../lib/format'
 import {
   detectRecurringTransaction,
@@ -15,15 +16,20 @@ import {
   defaultRecurringSuggestionSettings,
   normalizeRecurringSuggestionSettings,
 } from '../lib/schema'
-import { useStoredSlice } from '../lib/store'
+import { useStoredSlice, withUndo } from '../lib/store'
 import { STORE_PATHS } from '../lib/storePaths'
+import { nextTransactionSort, sortTransactionRows } from '../lib/transactionSort'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 import CalendarInput from './CalendarInput'
+import CategoryBadge from './CategoryBadge'
 import CategoryInput from './CategoryInput'
+import CategoryManagerModal from './CategoryManagerModal'
 import FixedExpenses from './FixedExpenses'
 import LoanInterestCalculator from './LoanInterestCalculator'
 import NumberInput from './NumberInput'
 import PaymentMethodManager from './PaymentMethodManager'
 import Picker from './Picker'
+import SortableHeader from './SortableHeader'
 
 const blankForm = () => ({
   date: todayStr(),
@@ -39,7 +45,6 @@ const blankForm = () => ({
   loanGraceMonths: '',
   installmentDueDate: '',
 })
-const blankCategoryForm = () => ({ original: '', value: '' })
 const PAYMENT_FILTER_UNSPECIFIED = '__unspecified__'
 
 function previousMonthOf(month) {
@@ -113,9 +118,11 @@ export default function LedgerStage({
   fixedIncomeEntries = [],
   previousFixedIncomeEntries = [],
   categories,
+  categoryIcons = {},
   addCategory,
   updateCategory,
   removeCategory,
+  setCategoryIcon,
   paymentMethods = [],
   addPaymentMethod,
   updatePaymentMethod,
@@ -126,32 +133,55 @@ export default function LedgerStage({
   const categoryList = categories?.length ? categories : meta.categories
   const [form, setForm] = useState(blankForm)
   const [editingId, setEditingId] = useState(null)
-  const [categoryForm, setCategoryForm] = useState(blankCategoryForm)
   const [categoryOpen, setCategoryOpen] = useState(false)
   const [paymentEditOpen, setPaymentEditOpen] = useState(false)
   const [paymentListOpen, setPaymentListOpen] = useState(false)
   const [pendingPaymentEditId, setPendingPaymentEditId] = useState('')
   const [methodChange, setMethodChange] = useState({ from: '', to: '' })
   const [mobileEntryOpen, setMobileEntryOpen] = useState(false)
+  useEscapeDismiss(() => setMobileEntryOpen(false), mobileEntryOpen)
+  useEscapeDismiss(
+    () => {
+      setPaymentEditOpen(false)
+      setPendingPaymentEditId('')
+    },
+    paymentEditOpen
+  )
+  useEscapeDismiss(() => setPaymentListOpen(false), paymentListOpen)
   const [mobileManualOpen, setMobileManualOpen] = useState(false)
   const [quickInput, setQuickInput] = useState('')
   const [inlineEditId, setInlineEditId] = useState(null)
   const [inlineDraft, setInlineDraft] = useState(blankForm)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [draggingRowId, setDraggingRowId] = useState('')
+  const [mergeTargetRowId, setMergeTargetRowId] = useState('')
   const [historySearch, setHistorySearch] = useState('')
   const [historyStartDate, setHistoryStartDate] = useState('')
   const [historyEndDate, setHistoryEndDate] = useState('')
   const [historyCategory, setHistoryCategory] = useState('')
   const [historyPayment, setHistoryPayment] = useState('')
   const [historyFiltersOpen, setHistoryFiltersOpen] = useState(false)
+  useEscapeDismiss(() => setHistoryFiltersOpen(false), historyFiltersOpen)
+  const [historySort, setHistorySort] = useState({ key: 'date', direction: 'desc' })
   const [activeRecurringCandidate, setActiveRecurringCandidate] = useState(null)
   const [rawRecurringSuggestionSettings, setRecurringSuggestionSettings] = useStoredSlice(
     STORE_PATHS.settings.recurringSuggestions,
     defaultRecurringSuggestionSettings
   )
 
-  const categoryOptions = categoryList
+  const categoryOptions = useMemo(
+    () =>
+      categoryList.map((name) => {
+        const icon = categoryIcon(name, categoryIcons)
+        return { value: name, label: icon ? `${icon} ${name}` : name }
+      }),
+    [categoryIcons, categoryList]
+  )
+  const inlineCategoryOptions = useMemo(
+    () => [...new Set([inlineDraft.category, ...categoryList].filter(Boolean))],
+    [categoryList, inlineDraft.category]
+  )
   const recurringSuggestionSettings = useMemo(
     () => normalizeRecurringSuggestionSettings(rawRecurringSuggestionSettings),
     [rawRecurringSuggestionSettings]
@@ -167,6 +197,19 @@ export default function LedgerStage({
     ],
     [paymentMethods]
   )
+  const inlinePaymentOptions = useMemo(() => {
+    const currentId = inlineDraft.paymentMethodId
+    if (!currentId || paymentOptions.some((option) => option.value === currentId)) {
+      return paymentOptions
+    }
+    return [
+      ...paymentOptions,
+      {
+        value: currentId,
+        label: inlineDraft.paymentMethodLabel || '기존 결제수단',
+      },
+    ]
+  }, [inlineDraft.paymentMethodId, inlineDraft.paymentMethodLabel, paymentOptions])
   const loanInterestMode = type === '지출' && isLoanInterestCategory(form.category)
   const installmentMode = type === '지출' && isInstallmentCategory(form.category)
 
@@ -247,13 +290,22 @@ export default function LedgerStage({
     rows,
     type,
   ])
+  const sortedRows = useMemo(
+    () =>
+      sortTransactionRows(filteredRows, historySort, (row) =>
+        paymentMethods.find((method) => method.id === row.paymentMethodId)?.name ||
+        row.paymentMethod ||
+        '미지정'
+      ),
+    [filteredRows, historySort, paymentMethods]
+  )
   const historyFilterActive =
     Boolean(historySearch.trim()) ||
     Boolean(historyStartDate) ||
     Boolean(historyEndDate) ||
     Boolean(historyCategory) ||
     Boolean(historyPayment)
-  const rowIds = useMemo(() => filteredRows.map((row) => row.id), [filteredRows])
+  const rowIds = useMemo(() => sortedRows.map((row) => row.id), [sortedRows])
   const selectedRowIds = useMemo(
     () => rowIds.filter((id) => selectedIds.has(id)),
     [rowIds, selectedIds]
@@ -573,13 +625,14 @@ export default function LedgerStage({
     setInlineDraft({
       ...blankForm(),
       date: row.date || todayStr(),
-      category: row.category || '',
+      category: row.category || '미분류',
       paymentMethodId:
         type === '지출'
           ? row.paymentMethodId ||
             paymentMethods.find((method) => method.name === row.paymentMethod)?.id ||
             ''
           : '',
+      paymentMethodLabel: row.paymentMethod || '',
       amount: String(row.amount || ''),
       memo: row.memo || '',
     })
@@ -673,16 +726,87 @@ export default function LedgerStage({
     setSelectionMode((current) => !current)
   }
 
-  function handleLedgerListDoubleClick(e) {
-    if (e.target.closest?.('button,input,textarea,select,a,.picker,.calendar-input')) return
-    toggleSelectionMode()
+  function handleRowDoubleClick(event, row) {
+    if (
+      inlineEditId === row.id ||
+      event.target.closest?.('button,input,textarea,select,a,.picker,.calendar-input')
+    ) {
+      return
+    }
+    startInlineEdit(row)
+  }
+
+  function clearMergeDrag() {
+    setDraggingRowId('')
+    setMergeTargetRowId('')
+  }
+
+  function handleMergeDragStart(event, row) {
+    if (inlineEditId === row.id || editingId === row.id) {
+      event.preventDefault()
+      return
+    }
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', row.id)
+    setDraggingRowId(row.id)
+    setMergeTargetRowId('')
+  }
+
+  function handleMergeDragOver(event, targetRow) {
+    if (!draggingRowId) return
+    if (
+      draggingRowId === targetRow.id ||
+      inlineEditId === targetRow.id ||
+      editingId === targetRow.id
+    ) {
+      if (mergeTargetRowId) setMergeTargetRowId('')
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    if (mergeTargetRowId !== targetRow.id) setMergeTargetRowId(targetRow.id)
+  }
+
+  function handleMergeDrop(event, targetRow) {
+    event.preventDefault()
+    const sourceId = draggingRowId || event.dataTransfer.getData('text/plain')
+    const sourceRow = rows.find((row) => row.id === sourceId)
+    const currentTarget = rows.find((row) => row.id === targetRow.id)
+    if (
+      !sourceRow ||
+      !currentTarget ||
+      sourceRow.id === currentTarget.id ||
+      inlineEditId === currentTarget.id ||
+      editingId === currentTarget.id
+    ) {
+      clearMergeDrag()
+      return
+    }
+
+    const mergedAmount = (Number(currentTarget.amount) || 0) + (Number(sourceRow.amount) || 0)
+    withUndo(`${type} 내역 합치기`, () => {
+      updateEntry(currentTarget.id, { amount: mergedAmount })
+      removeEntry(sourceRow.id)
+    })
+
+    if (editingId === sourceRow.id) cancelEdit()
+    if (inlineEditId === sourceRow.id) cancelInlineEdit()
+    setSelectedIds((current) => {
+      if (!current.has(sourceRow.id)) return current
+      const next = new Set(current)
+      next.delete(sourceRow.id)
+      return next
+    })
+    clearMergeDrag()
   }
 
   function deleteSelectedRows() {
     if (selectedRowIds.length === 0) return
     if (!window.confirm(`선택한 ${selectedRowIds.length}개 ${type} 내역을 삭제할까요?`)) return
 
-    selectedRowIds.forEach((id) => removeEntry(id))
+    withUndo(`${type} 내역 ${selectedRowIds.length}건 삭제`, () => {
+      selectedRowIds.forEach((id) => removeEntry(id))
+    })
     if (selectedRowIds.includes(editingId)) cancelEdit()
     if (selectedRowIds.includes(inlineEditId)) cancelInlineEdit()
     setSelectedIds((current) => {
@@ -694,7 +818,7 @@ export default function LedgerStage({
 
   function handleDelete(row) {
     if (window.confirm(`${row.date} · ${row.category} · ${formatKRW(row.amount)}\n이 항목을 삭제할까요?`)) {
-      removeEntry(row.id)
+      withUndo(`${type} 내역 삭제`, () => removeEntry(row.id))
       if (editingId === row.id) cancelEdit()
       if (inlineEditId === row.id) cancelInlineEdit()
       setSelectedIds((current) => {
@@ -706,37 +830,32 @@ export default function LedgerStage({
     }
   }
 
-  function submitCategory(e) {
-    e.preventDefault()
-    const value = categoryForm.value.trim()
-    if (!value) return
-    if (categoryForm.original) {
-      updateCategory?.(type, categoryForm.original, value)
-      if (form.category === categoryForm.original) set('category', value)
-    } else {
-      addCategory?.(type, value)
-    }
-    setCategoryForm(blankCategoryForm())
-  }
-
-  function editCategory(name) {
-    setCategoryForm({ original: name, value: name })
-  }
-
-  function deleteCategory(name) {
-    if (window.confirm(`카테고리 '${name}'을(를) 삭제할까요?`)) {
-      removeCategory?.(type, name)
-      if (form.category === name) set('category', '')
-      if (categoryForm.original === name) setCategoryForm(blankCategoryForm())
-    }
-  }
-
   function resetHistoryFilters() {
     setHistorySearch('')
     setHistoryStartDate('')
     setHistoryEndDate('')
     setHistoryCategory('')
     setHistoryPayment('')
+  }
+
+  function updateManagedCategory(categoryType, from, to) {
+    const updated = updateCategory?.(categoryType, from, to)
+    if (!updated) return false
+    if (form.category === from) set('category', to)
+    if (inlineDraft.category === from) setInline('category', to)
+    return true
+  }
+
+  function removeManagedCategory(categoryType, name) {
+    const removed = removeCategory?.(categoryType, name)
+    if (!removed) return false
+    if (form.category === name) set('category', '')
+    if (inlineDraft.category === name) setInline('category', '')
+    return true
+  }
+
+  function sortHistoryBy(key) {
+    setHistorySort((current) => nextTransactionSort(current, key))
   }
 
   function normalizeHistoryDate(value) {
@@ -1083,67 +1202,16 @@ export default function LedgerStage({
       )}
 
       {categoryOpen && (
-        <div className="fixed-modal-backdrop" onClick={() => setCategoryOpen(false)}>
-          <div
-            className="fixed-modal category-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="fixed-modal-head">
-              <h3>{type} 카테고리</h3>
-              <button
-                className="fixed-modal-close"
-                onClick={() => setCategoryOpen(false)}
-                aria-label="닫기"
-              >
-                ×
-              </button>
-            </div>
-
-            <form className="category-form" onSubmit={submitCategory}>
-              <CategoryInput
-                placeholder="카테고리명"
-                options={categoryList}
-                value={categoryForm.value}
-                onChange={(value) =>
-                  setCategoryForm((prev) => ({ ...prev, value }))
-                }
-              />
-              <button type="submit" className="btn btn-sm btn-accent">
-                {categoryForm.original ? '수정' : '추가'}
-              </button>
-              {categoryForm.original && (
-                <button
-                  type="button"
-                  className="btn btn-sm"
-                  onClick={() => setCategoryForm(blankCategoryForm())}
-                >
-                  취소
-                </button>
-              )}
-            </form>
-
-            <div className="category-chip-row">
-              {categoryList.map((c) => (
-                <span className="category-chip" key={c}>
-                  {c}
-                  {isLoanInterestCategory(c) && <span className="mini-tag">이자계산기</span>}
-                  <button className="icon-btn" onClick={() => editCategory(c)} aria-label={`${c} 수정`}>
-                    ✎
-                  </button>
-                  <button
-                    className="icon-btn danger"
-                    onClick={() => deleteCategory(c)}
-                    aria-label={`${c} 삭제`}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
+        <CategoryManagerModal
+          type={type}
+          categories={categoryList}
+          icons={categoryIcons}
+          addCategory={addCategory}
+          updateCategory={updateManagedCategory}
+          removeCategory={removeManagedCategory}
+          setCategoryIcon={setCategoryIcon}
+          onClose={() => setCategoryOpen(false)}
+        />
       )}
 
       {paymentEditOpen && (
@@ -1265,6 +1333,16 @@ export default function LedgerStage({
                 선택 삭제 {selectedRowIds.length}
               </button>
             )}
+            {rows.length > 0 && (
+              <button
+                type="button"
+                className={`btn btn-sm${selectionMode ? ' btn-accent' : ''}`}
+                onClick={toggleSelectionMode}
+                aria-pressed={selectionMode}
+              >
+                {selectionMode ? '선택 종료' : '여러 개 선택'}
+              </button>
+            )}
           </div>
         </div>
         {rows.length > 0 && (
@@ -1349,11 +1427,14 @@ export default function LedgerStage({
         ) : (
           <div
             className={`table-wrap${inlineEditId ? ' has-inline-edit' : ''}`}
-            onDoubleClick={handleLedgerListDoubleClick}
           >
-            <table className="ledger-table">
+            <table className="ledger-table mergeable-ledger-table">
               <thead>
                 <tr>
+                  <th className="ledger-drag-head" title="드래그하여 항목 합치기">
+                    <span aria-hidden="true">⠿</span>
+                    <span className="sr-only">항목 합치기</span>
+                  </th>
                   {selectionMode && (
                     <th className="ledger-select-head">
                       <input
@@ -1364,28 +1445,75 @@ export default function LedgerStage({
                       />
                     </th>
                   )}
-                  <th>날짜</th>
-                  <th>카테고리</th>
-                  {type === '지출' && <th>결제수단</th>}
-                  <th className="col-right">금액</th>
-                  <th>메모</th>
+                  <SortableHeader
+                    label="날짜"
+                    sortKey="date"
+                    sort={historySort}
+                    onSort={sortHistoryBy}
+                  />
+                  <SortableHeader
+                    label="카테고리"
+                    sortKey="category"
+                    sort={historySort}
+                    onSort={sortHistoryBy}
+                  />
+                  {type === '지출' && (
+                    <SortableHeader
+                      label="결제수단"
+                      sortKey="paymentMethod"
+                      sort={historySort}
+                      onSort={sortHistoryBy}
+                    />
+                  )}
+                  <SortableHeader
+                    label="금액"
+                    sortKey="amount"
+                    sort={historySort}
+                    onSort={sortHistoryBy}
+                    align="right"
+                  />
+                  <SortableHeader
+                    label="메모"
+                    sortKey="memo"
+                    sort={historySort}
+                    onSort={sortHistoryBy}
+                  />
                   <th className="col-right">관리</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => {
+                {sortedRows.map((row) => {
                   const inlineEditing = inlineEditId === row.id
                   return (
                     <tr
                       key={row.id}
-                      className={
+                      className={[
                         inlineEditing
                           ? 'editing inline-editing'
                           : editingId === row.id
                             ? 'editing'
-                            : undefined
-                      }
+                            : '',
+                        draggingRowId === row.id ? 'ledger-merge-source' : '',
+                        mergeTargetRowId === row.id ? 'ledger-merge-target' : '',
+                      ].filter(Boolean).join(' ') || undefined}
+                      onDragOver={(event) => handleMergeDragOver(event, row)}
+                      onDrop={(event) => handleMergeDrop(event, row)}
+                      onDoubleClick={(event) => handleRowDoubleClick(event, row)}
                     >
+                      <td className="ledger-drag-cell" data-label="합치기">
+                        <button
+                          type="button"
+                          className="ledger-drag-handle"
+                          draggable={!inlineEditing && editingId !== row.id}
+                          disabled={inlineEditing || editingId === row.id}
+                          onDragStart={(event) => handleMergeDragStart(event, row)}
+                          onDragEnd={clearMergeDrag}
+                          aria-label={`${row.date} ${row.category} 항목을 드래그하여 합치기`}
+                          title="다른 항목 위로 끌어 금액 합치기"
+                        >
+                          <span aria-hidden="true">⠿</span>
+                        </button>
+                      </td>
                       {selectionMode && (
                         <td className="ledger-select-cell" data-label="선택">
                           <input
@@ -1410,17 +1538,23 @@ export default function LedgerStage({
                       </td>
                       <td data-label="카테고리">
                         {inlineEditing ? (
-                          <CategoryInput
+                          <select
                             value={inlineDraft.category}
-                            options={categoryList}
-                            placeholder="카테고리 입력"
-                            className="ledger-inline-input"
-                            ariaLabel="카테고리"
-                            onChange={(value) => setInline('category', value)}
-                          />
+                            className="ledger-inline-input ledger-inline-select"
+                            aria-label="카테고리"
+                            onChange={(e) => setInline('category', e.target.value)}
+                          >
+                            {inlineCategoryOptions.map((category) => (
+                              <option key={category} value={category}>
+                                {categoryIcon(category, categoryIcons)
+                                  ? `${categoryIcon(category, categoryIcons)} ${category}`
+                                  : category}
+                              </option>
+                            ))}
+                          </select>
                         ) : (
                           <>
-                            <span className="tag">{row.category}</span>
+                            <CategoryBadge category={row.category} icons={categoryIcons} />
                             {isLoanInterestCategory(row.category) && (
                               <span className="mini-tag">이자계산기</span>
                             )}
@@ -1436,12 +1570,18 @@ export default function LedgerStage({
                       {type === '지출' && (
                         <td data-label="결제수단">
                           {inlineEditing ? (
-                            <Picker
+                            <select
                               value={inlineDraft.paymentMethodId}
-                              options={paymentOptions}
-                              placeholder="미지정"
-                              onChange={(value) => setInline('paymentMethodId', value)}
-                            />
+                              className="ledger-inline-input ledger-inline-select"
+                              aria-label="결제수단"
+                              onChange={(e) => setInline('paymentMethodId', e.target.value)}
+                            >
+                              {inlinePaymentOptions.map((option) => (
+                                <option key={option.value || 'unspecified'} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
                           ) : (
                             paymentName(row.paymentMethodId, row.paymentMethod)
                           )}

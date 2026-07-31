@@ -7,12 +7,16 @@ import { reconcileFixedExpenseEntries } from '../lib/fixedExpenseSettlement'
 import { createId } from '../lib/id'
 import { daysUntilInstallmentDue } from '../lib/installment'
 import { parseAmountInput } from '../lib/numberInput'
+import { categoryColor, categoryIcon } from '../lib/categoryPresentation'
 import { defaultExpensePlanSettings, normalizeExpensePlanSettings } from '../lib/schema'
-import { useStoredSlice } from '../lib/store'
+import { useStoredSlice, withUndo } from '../lib/store'
 import { STORE_PATHS } from '../lib/storePaths'
+import { nextTransactionSort, sortTransactionRows } from '../lib/transactionSort'
+import CategoryBadge from './CategoryBadge'
 import NumberInput from './NumberInput'
 import PaymentMethodManager from './PaymentMethodManager'
 import Picker from './Picker'
+import SortableHeader from './SortableHeader'
 
 const EXPENSE_COLOR = '#dc2626'
 const BUDGET_PIE_COLORS = [
@@ -20,7 +24,6 @@ const BUDGET_PIE_COLORS = [
   '#8b5cf6', '#14b8a6', '#f97316', '#84cc16', '#06b6d4', '#a855f7',
 ]
 const BUDGET_UNALLOCATED_COLOR = '#cbd5e1'
-const BUDGET_QUICK_ITEMS = ['생활비', '식비', '교통비', '여가비', '저축']
 
 function BudgetPlanTooltip({ active, payload, total }) {
   if (!active || !payload?.length) return null
@@ -36,7 +39,7 @@ function BudgetPlanTooltip({ active, payload, total }) {
         ? '저축(고정)'
         : item.group === 'unallocated'
           ? '남은 예산'
-          : '직접 계획'
+          : '카테고리 예산'
 
   return (
     <div
@@ -57,6 +60,138 @@ function BudgetPlanTooltip({ active, payload, total }) {
         <b>{share.toFixed(1)}%</b>
       </div>
     </div>
+  )
+}
+
+function BudgetExecutionWidget({ budgetExecution, periodLabel, categoryIcons }) {
+  return (
+    <section className="card budget-execution" aria-labelledby="budget-execution-title">
+      <div className="budget-execution-head">
+        <div>
+          <span>예산 이행 현황</span>
+          <h3 id="budget-execution-title">{periodLabel} 계획 대비 실제 지출</h3>
+          <p>
+            {budgetExecution.plannedMultiplier > 1
+              ? '월 예산을 12개월 기준으로 환산해 비교합니다.'
+              : '등록한 월 예산과 선택한 달의 실제 지출을 비교합니다.'}
+          </p>
+        </div>
+        <span className={`budget-execution-status ${budgetExecution.tone}`}>
+          <i aria-hidden="true" />
+          {budgetExecution.label}
+        </span>
+      </div>
+
+      <div className="budget-execution-summary">
+        <div>
+          <span>기간 예산</span>
+          <b>{formatKRW(budgetExecution.planned)}</b>
+        </div>
+        <div>
+          <span>실제 지출</span>
+          <b>{formatKRW(budgetExecution.actual)}</b>
+        </div>
+        <div className={budgetExecution.remaining < 0 ? 'over' : 'remaining'}>
+          <span>{budgetExecution.remaining < 0 ? '초과 금액' : '남은 금액'}</span>
+          <b>{formatKRW(Math.abs(budgetExecution.remaining))}</b>
+        </div>
+        <div className="budget-execution-total-progress">
+          <div>
+            <span>전체 사용률</span>
+            <b>
+              {budgetExecution.rate == null ? '-' : `${Math.round(budgetExecution.rate)}%`}
+            </b>
+          </div>
+          <i aria-hidden="true">
+            <b
+              className={budgetExecution.tone}
+              style={{
+                width: `${
+                  budgetExecution.rate == null
+                    ? budgetExecution.actual > 0 ? 100 : 0
+                    : Math.min(100, budgetExecution.rate)
+                }%`,
+              }}
+            />
+          </i>
+        </div>
+      </div>
+
+      {budgetExecution.items.length === 0 ? (
+        <div className="budget-execution-empty">
+          카테고리 예산을 추가하면 실제 지출과의 이행률을 확인할 수 있습니다.
+        </div>
+      ) : (
+        <div className="budget-execution-table">
+          <div className="budget-execution-columns" aria-hidden="true">
+            <span>항목</span>
+            <span>실제 / 예산</span>
+            <span>사용률</span>
+            <span>결과</span>
+          </div>
+          <div className="budget-execution-list">
+            {budgetExecution.items.map((item) => {
+              const itemRate = item.planned > 0 ? (item.actual / item.planned) * 100 : null
+              const difference = item.planned - item.actual
+              const itemTone =
+                item.type === 'unplanned' || (item.planned <= 0 && item.actual > 0)
+                  ? 'unplanned'
+                  : difference < 0
+                    ? 'over'
+                    : item.planned <= 0
+                      ? 'neutral'
+                      : 'good'
+              const resultLabel =
+                item.planned <= 0 && item.actual > 0
+                  ? `미계획 ${formatKRW(item.actual)}`
+                  : item.planned <= 0
+                    ? '예산 입력 필요'
+                    : difference < 0
+                      ? `${formatKRW(Math.abs(difference))} 초과`
+                      : `${formatKRW(difference)} 남음`
+              return (
+                <div
+                  className={`budget-execution-row ${itemTone}`}
+                  key={item.id}
+                  style={{ '--budget-category-color': item.color }}
+                >
+                  <span className="budget-execution-category">
+                    {item.type === 'fixed' ? (
+                      <span className="budget-execution-fixed">
+                        <i aria-hidden="true" />
+                        고정지출
+                      </span>
+                    ) : (
+                      <CategoryBadge category={item.name} icons={categoryIcons} />
+                    )}
+                    {item.type === 'unplanned' && <span className="mini-tag">미계획</span>}
+                  </span>
+                  <span className="budget-execution-amount">
+                    <b>{formatKRW(item.actual)}</b>
+                    <small>/ {item.planned > 0 ? formatKRW(item.planned) : '예산 없음'}</small>
+                  </span>
+                  <span className="budget-execution-item-progress">
+                    <i aria-hidden="true">
+                      <b
+                        style={{
+                          width: `${
+                            itemRate == null
+                              ? item.actual > 0 ? 100 : 0
+                              : Math.min(100, itemRate)
+                          }%`,
+                        }}
+                      />
+                    </i>
+                    <small>{itemRate == null ? '-' : `${Math.round(itemRate)}%`}</small>
+                  </span>
+                  <strong>{resultLabel}</strong>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -98,6 +233,8 @@ export default function ExpenseManagementStage({
   fixedItems = [],
   fixedRecords = [],
   fixedIncomeItems = [],
+  categories = [],
+  categoryIcons = {},
   paymentMethods,
   updatePaymentMethod,
   replacePaymentMethod,
@@ -118,6 +255,7 @@ export default function ExpenseManagementStage({
     () => fixedIncomeItems.reduce((sum, it) => sum + (Number(it?.amount) || 0), 0),
     [fixedIncomeItems]
   )
+  const [budgetPlanCollapsed, setBudgetPlanCollapsed] = useState(false)
   const [fixedBundleExpanded, setFixedBundleExpanded] = useState(false)
   const fixedBundleMembers = useMemo(
     () =>
@@ -144,6 +282,24 @@ export default function ExpenseManagementStage({
     [fixedBundleMembers]
   )
   const fixedOtherTotal = fixedBundleTotal - fixedSavingsTotal
+  const budgetCategories = useMemo(
+    () => [...new Set(categories.map((category) => String(category || '').trim()).filter(Boolean))],
+    [categories]
+  )
+  const usedBudgetCategories = useMemo(
+    () => new Set(expensePlan.customItems.map((item) => item.name).filter(Boolean)),
+    [expensePlan.customItems]
+  )
+  const availableBudgetCategoryOptions = useMemo(
+    () =>
+      budgetCategories
+        .filter((category) => !usedBudgetCategories.has(category))
+        .map((category) => ({
+          value: category,
+          label: [categoryIcon(category, categoryIcons), category].filter(Boolean).join(' '),
+        })),
+    [budgetCategories, categoryIcons, usedBudgetCategories]
+  )
   const allocatedTotal = useMemo(
     () =>
       fixedBundleTotal +
@@ -205,7 +361,7 @@ export default function ExpenseManagementStage({
           name: item.name || '(이름 없음)',
           value: item.amount,
           group: 'custom',
-          color: BUDGET_PIE_COLORS[(index + 2) % BUDGET_PIE_COLORS.length],
+          color: categoryColor(item.name) || BUDGET_PIE_COLORS[(index + 2) % BUDGET_PIE_COLORS.length],
         })
       )
     if (unallocated > 0) {
@@ -228,9 +384,13 @@ export default function ExpenseManagementStage({
   ])
 
   function addBudgetItem(name = '') {
+    const category = String(name || '').trim()
+    if (!category || !budgetCategories.includes(category)) return
     updateExpensePlan((current) => ({
       ...current,
-      customItems: [...current.customItems, { id: createId(), name, amount: 0 }],
+      customItems: current.customItems.some((item) => item.name === category)
+        ? current.customItems
+        : [...current.customItems, { id: createId(), name: category, amount: 0 }],
     }))
   }
 
@@ -248,11 +408,36 @@ export default function ExpenseManagementStage({
     }))
   }
 
+  function budgetCategoryOptionsFor(item) {
+    const options = budgetCategories
+      .filter(
+        (category) =>
+          category === item.name ||
+          !expensePlan.customItems.some(
+            (otherItem) => otherItem.id !== item.id && otherItem.name === category
+          )
+      )
+      .map((category) => ({
+        value: category,
+        label: [categoryIcon(category, categoryIcons), category].filter(Boolean).join(' '),
+      }))
+
+    if (item.name && !budgetCategories.includes(item.name)) {
+      options.unshift({
+        value: item.name,
+        label: `${item.name} · 이전 항목`,
+      })
+    }
+    return options
+  }
+
   const [month, setMonth] = useState(() => todayStr().slice(0, 7))
   const [year, setYear] = useState(() => todayStr().slice(0, 4))
   const [periodMode, setPeriodMode] = useState('month')
   const [historyCollapsed, setHistoryCollapsed] = useState(true)
   const [historySearch, setHistorySearch] = useState('')
+  const [historySort, setHistorySort] = useState({ key: 'date', direction: 'desc' })
+  const [categorySpendExpanded, setCategorySpendExpanded] = useState(false)
   const [selectedMethodKey, setSelectedMethodKey] = useState('')
   const [replaceTargetId, setReplaceTargetId] = useState('')
   const methods = paymentMethods.items
@@ -290,34 +475,105 @@ export default function ExpenseManagementStage({
 
   const total = useMemo(() => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0), [rows])
   const byCategory = useMemo(() => sumBy(rows, (row) => row.category || '미분류'), [rows])
-  const allExpenseListRows = useMemo(
-    () =>
-      [...rows].sort(
-        (a, b) =>
-          (b.date || '').localeCompare(a.date || '') ||
-          (Number(b.amount) || 0) - (Number(a.amount) || 0)
-      ),
-    [rows]
-  )
+  const budgetExecution = useMemo(() => {
+    const plannedMultiplier = periodMode === 'year' ? 12 : 1
+    const plannedCategoryNames = new Set(
+      expensePlan.customItems.map((item) => item.name).filter(Boolean)
+    )
+    const actualByCategory = new Map()
+    const unplannedByCategory = new Map()
+    let fixedActual = 0
+
+    rows.forEach((row) => {
+      const amount = Number(row.amount) || 0
+      if (row.fixedId) {
+        fixedActual += amount
+        return
+      }
+      const category = row.category || '미분류'
+      const target = plannedCategoryNames.has(category) ? actualByCategory : unplannedByCategory
+      target.set(category, (target.get(category) || 0) + amount)
+    })
+
+    const items = []
+    const fixedPlan = fixedBundleTotal * plannedMultiplier
+    if (fixedPlan > 0 || fixedActual > 0) {
+      items.push({
+        id: 'fixed',
+        name: '고정지출',
+        type: 'fixed',
+        planned: fixedPlan,
+        actual: fixedActual,
+        color: '#ef4444',
+      })
+    }
+    expensePlan.customItems.forEach((item) => {
+      items.push({
+        id: item.id,
+        name: item.name || '이름 없는 예산',
+        type: 'category',
+        planned: (Number(item.amount) || 0) * plannedMultiplier,
+        actual: actualByCategory.get(item.name) || 0,
+        color: categoryColor(item.name),
+      })
+    })
+    ;[...unplannedByCategory.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([name, actual]) => {
+        if (actual <= 0) return
+        items.push({
+          id: `unplanned-${name}`,
+          name,
+          type: 'unplanned',
+          planned: 0,
+          actual,
+          color: categoryColor(name),
+        })
+      })
+
+    const planned = allocatedTotal * plannedMultiplier
+    const remaining = planned - total
+    const rate = planned > 0 ? (total / planned) * 100 : total > 0 ? null : 0
+    const tone =
+      planned <= 0 && total > 0
+        ? 'over'
+        : total > planned
+          ? 'over'
+          : 'good'
+    const label =
+      planned <= 0 && total > 0
+        ? '예산 등록 필요'
+        : total > planned
+          ? '예산 초과'
+          : '예산 범위 내'
+
+    return { items, planned, actual: total, remaining, rate, tone, label, plannedMultiplier }
+  }, [allocatedTotal, expensePlan.customItems, fixedBundleTotal, periodMode, rows, total])
+  const allExpenseListRows = rows
   const expenseListRows = useMemo(() => {
     const query = historySearch.trim().toLowerCase()
-    if (!query) return allExpenseListRows
-    return allExpenseListRows.filter((row) => {
-      const paymentLabel = methodName(methods, row.paymentMethodId, row.paymentMethod)
-      return [
-        row.date,
-        row.category,
-        paymentLabel,
-        row.memo,
-        row.fixedId ? '고정지출 고정' : '수동입력 수동',
-        formatKRW(row.amount),
-        String(row.amount || ''),
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(query)
-    })
-  }, [allExpenseListRows, historySearch, methods])
+    const filtered = !query
+      ? allExpenseListRows
+      : allExpenseListRows.filter((row) => {
+          const paymentLabel = methodName(methods, row.paymentMethodId, row.paymentMethod)
+          return [
+            row.date,
+            row.category,
+            paymentLabel,
+            row.memo,
+            row.fixedId ? '고정지출 고정' : '수동입력 수동',
+            formatKRW(row.amount),
+            String(row.amount || ''),
+          ]
+            .join(' ')
+            .toLowerCase()
+            .includes(query)
+        })
+
+    return sortTransactionRows(filtered, historySort, (row) =>
+      methodName(methods, row.paymentMethodId, row.paymentMethod)
+    )
+  }, [allExpenseListRows, historySearch, historySort, methods])
 
   const methodCards = useMemo(() => {
     const spentById = new Map()
@@ -414,6 +670,17 @@ export default function ExpenseManagementStage({
     () => methodCards.find((method) => method.key === selectedMethodKey) || null,
     [methodCards, selectedMethodKey]
   )
+  const selectedMethodRows = useMemo(() => {
+    if (!selectedMethod) return []
+    const selectedId = selectedMethod.rawPaymentMethodId || ''
+    return rows
+      .filter((row) => (row.paymentMethodId || '') === selectedId)
+      .sort(
+        (a, b) =>
+          (b.date || '').localeCompare(a.date || '') ||
+          (Number(b.amount) || 0) - (Number(a.amount) || 0)
+      )
+  }, [rows, selectedMethod])
   const selectedConfiguredMethod = selectedMethod?.type === 'configured'
     ? methods.find((method) => method.id === selectedMethod.rawPaymentMethodId)
     : null
@@ -440,6 +707,14 @@ export default function ExpenseManagementStage({
     setReplaceTargetId('')
   }
 
+  function handleMethodContextMenu(e, method) {
+    if (method.type !== 'configured' || !paymentMethods?.removeItem) return
+    e.preventDefault()
+    if (!window.confirm(`결제수단 '${method.name}'을(를) 삭제할까요?`)) return
+    withUndo(`결제수단 '${method.name}' 삭제`, () => paymentMethods.removeItem(method.id))
+    if (selectedMethodKey === method.key) setSelectedMethodKey('')
+  }
+
   function applyPaymentMethodReplace() {
     if (!selectedMethod || !replaceTargetId || !replacePaymentMethod) return
     const target = methods.find((method) => method.id === replaceTargetId)
@@ -458,6 +733,10 @@ export default function ExpenseManagementStage({
       setSelectedMethodKey(`method:${target.id}`)
       setReplaceTargetId('')
     }
+  }
+
+  function sortHistoryBy(key) {
+    setHistorySort((current) => nextTransactionSort(current, key))
   }
 
   return (
@@ -505,14 +784,42 @@ export default function ExpenseManagementStage({
               <span>MONTHLY BUDGET</span>
             </div>
           </div>
-          {(totalFixedIncome <= 0 || budgetStatus) && (
-            <span className={`budget-plan-status ${totalFixedIncome <= 0 ? 'empty' : budgetStatus.tone}`}>
-              <i aria-hidden="true" />
-              {totalFixedIncome <= 0 ? '계획 시작 전' : budgetStatus.label}
-            </span>
-          )}
+          <div className="budget-plan-head-actions">
+            {(totalFixedIncome <= 0 || budgetStatus) && (
+              <span className={`budget-plan-status ${totalFixedIncome <= 0 ? 'empty' : budgetStatus.tone}`}>
+                <i aria-hidden="true" />
+                {totalFixedIncome <= 0 ? '계획 시작 전' : budgetStatus.label}
+              </span>
+            )}
+            <button
+              type="button"
+              className={`budget-plan-collapse${budgetPlanCollapsed ? ' collapsed' : ''}`}
+              onClick={() => setBudgetPlanCollapsed((collapsed) => !collapsed)}
+              aria-expanded={!budgetPlanCollapsed}
+              aria-label={`MONTHLY BUDGET ${budgetPlanCollapsed ? '펼치기' : '접기'}`}
+            >
+              <span>{budgetPlanCollapsed ? '펼치기' : '접기'}</span>
+              <i aria-hidden="true">›</i>
+            </button>
+          </div>
         </div>
-        {totalFixedIncome <= 0 ? (
+        {budgetPlanCollapsed ? (
+          <div className="budget-plan-collapsed-summary">
+            <div>
+              <span>월 고정수입</span>
+              <b>{formatKRW(totalFixedIncome)}</b>
+            </div>
+            <div>
+              <span>배분 예산</span>
+              <b>{formatKRW(allocatedTotal)}</b>
+            </div>
+            <div className={unallocated < 0 ? 'over' : 'remaining'}>
+              <span>{unallocated < 0 ? '초과 금액' : '남은 예산'}</span>
+              <b>{formatKRW(Math.abs(unallocated))}</b>
+            </div>
+            <small>{allocationRateLabel}% 배분</small>
+          </div>
+        ) : totalFixedIncome <= 0 ? (
           <div className="budget-plan-empty">
             <span className="budget-plan-empty-icon" aria-hidden="true">₩</span>
             <strong>먼저 월 고정수입을 등록해 주세요</strong>
@@ -555,7 +862,7 @@ export default function ExpenseManagementStage({
                   <b>{formatKRW(fixedBundleTotal)}</b>
                 </div>
                 <div className="budget-plan-stat">
-                  <span>직접 계획</span>
+                  <span>카테고리 예산</span>
                   <b>{formatKRW(customAllocatedTotal)}</b>
                 </div>
                 <div className={`budget-plan-stat${unallocated < 0 ? ' over' : ''}`}>
@@ -666,17 +973,22 @@ export default function ExpenseManagementStage({
                     <div className="budget-plan-row" key={item.id}>
                       <span
                         className="budget-plan-row-dot"
-                        style={{ background: BUDGET_PIE_COLORS[(index + 2) % BUDGET_PIE_COLORS.length] }}
+                        style={{
+                          background:
+                            categoryColor(item.name) ||
+                            BUDGET_PIE_COLORS[(index + 2) % BUDGET_PIE_COLORS.length],
+                        }}
                         aria-hidden="true"
                       />
-                      <input
-                        type="text"
-                        className="budget-plan-row-name-input"
-                        aria-label="예산 항목명"
-                        placeholder="항목명"
-                        value={item.name}
-                        onChange={(e) => updateBudgetItem(item.id, { name: e.target.value })}
-                      />
+                      <div className="budget-plan-category-picker">
+                        <Picker
+                          ariaLabel={`${item.name || '예산 항목'} 카테고리`}
+                          placeholder="카테고리 선택"
+                          options={budgetCategoryOptionsFor(item)}
+                          value={item.name}
+                          onChange={(name) => updateBudgetItem(item.id, { name })}
+                        />
+                      </div>
                       <div className="budget-plan-amount-input">
                         <NumberInput
                           min="0"
@@ -704,32 +1016,29 @@ export default function ExpenseManagementStage({
 
                   {expensePlan.customItems.length === 0 && (
                     <div className="budget-plan-list-empty">
-                      직접 계획할 항목을 아래에서 추가해 보세요.
+                      기존 지출 카테고리에서 예산 항목을 추가해 보세요.
                     </div>
                   )}
 
-                  <div className="budget-plan-quick-add">
-                    <span>빠른 추가</span>
+                  <div className="budget-plan-category-add">
                     <div>
-                      {BUDGET_QUICK_ITEMS.map((name) => {
-                        const added = expensePlan.customItems.some((item) => item.name === name)
-                        return (
-                          <button
-                            type="button"
-                            key={name}
-                            disabled={added}
-                            onClick={() => addBudgetItem(name)}
-                          >
-                            {added ? '✓ ' : '+ '}{name}
-                          </button>
-                        )
-                      })}
+                      <strong>카테고리 예산 추가</strong>
+                      <span>지출 관리에 등록된 카테고리만 표시됩니다.</span>
                     </div>
+                    {availableBudgetCategoryOptions.length > 0 ? (
+                      <Picker
+                        ariaLabel="예산에 추가할 지출 카테고리"
+                        placeholder="+ 카테고리 선택"
+                        options={availableBudgetCategoryOptions}
+                        value=""
+                        onChange={addBudgetItem}
+                      />
+                    ) : (
+                      <span className="budget-plan-categories-complete">
+                        모든 카테고리를 추가했습니다.
+                      </span>
+                    )}
                   </div>
-                  <button type="button" className="budget-plan-add-row" onClick={() => addBudgetItem()}>
-                    <span aria-hidden="true">+</span>
-                    직접 항목 추가
-                  </button>
                 </div>
               </section>
             </div>
@@ -737,12 +1046,20 @@ export default function ExpenseManagementStage({
         )}
       </div>
 
+      {totalFixedIncome > 0 && (
+        <BudgetExecutionWidget
+          budgetExecution={budgetExecution}
+          periodLabel={periodLabel}
+          categoryIcons={categoryIcons}
+        />
+      )}
+
       <div className="expense-management-grid">
         <div className="card method-usage-panel">
           <div className="method-usage-panel-head">
             <div>
               <h2 className="section-title">결제수단별 사용</h2>
-              <p>{periodLabel} · {methodCards.length}개 결제수단</p>
+              <p>{periodLabel} · {methodCards.length}개 결제수단 · 결제수단 우클릭 시 삭제</p>
             </div>
             <div className="method-usage-total">
               <span>총 사용</span>
@@ -776,6 +1093,7 @@ export default function ExpenseManagementStage({
                       className={`method-usage-card${isSelected ? ' selected' : ''}`}
                       key={method.key}
                       style={{ '--method-color': BUDGET_PIE_COLORS[index % BUDGET_PIE_COLORS.length] }}
+                      onContextMenu={(e) => handleMethodContextMenu(e, method)}
                     >
                       <button
                         type="button"
@@ -866,6 +1184,39 @@ export default function ExpenseManagementStage({
                           <b>{method.monthlyTarget ? formatKRW(method.monthlyTarget) : '-'}</b>
                         </div>
                       </div>
+                      <section className="method-expense-history" aria-label={`${method.name} 지출 내역`}>
+                        <div className="method-expense-history-head">
+                          <div>
+                            <h3>이 결제수단의 지출</h3>
+                            <span>{periodLabel} · {selectedMethodRows.length}건</span>
+                          </div>
+                          <strong>{formatKRW(method.amount)}</strong>
+                        </div>
+                        {selectedMethodRows.length === 0 ? (
+                          <div className="method-expense-history-empty">
+                            선택한 기간의 지출 내역이 없습니다.
+                          </div>
+                        ) : (
+                          <div className="method-expense-history-list">
+                            {selectedMethodRows.map((row, rowIndex) => (
+                              <div
+                                className="method-expense-history-row"
+                                key={`${row.id || 'expense'}-${row.date}-${rowIndex}`}
+                              >
+                                <time dateTime={row.date || undefined}>{row.date || '-'}</time>
+                                <span className="method-expense-history-category">
+                                  <CategoryBadge category={row.category} icons={categoryIcons} />
+                                  {row.fixedId && <span className="mini-tag">고정</span>}
+                                </span>
+                                <span className="method-expense-history-memo">
+                                  {row.memo || (row.fixedId ? '고정지출' : '메모 없음')}
+                                </span>
+                                <strong>{formatKRW(row.amount)}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </section>
                       {method.cardProductSourceUrl && (
                         <a
                           className="method-product-link"
@@ -936,9 +1287,9 @@ export default function ExpenseManagementStage({
             {byCategory.length === 0 ? (
               <div className="empty" style={{ padding: '36px 10px' }}>선택한 기간의 지출이 없습니다.</div>
             ) : (
-              byCategory.slice(0, 8).map((row, index) => {
+              (categorySpendExpanded ? byCategory : byCategory.slice(0, 8)).map((row, index) => {
                 const share = total > 0 ? (row.amount / total) * 100 : 0
-                const color = BUDGET_PIE_COLORS[(index + 3) % BUDGET_PIE_COLORS.length]
+                const color = categoryColor(row.name)
                 return (
                   <div
                     className="category-spend-row"
@@ -949,7 +1300,9 @@ export default function ExpenseManagementStage({
                       {String(index + 1).padStart(2, '0')}
                     </span>
                     <span className="category-spend-name">
-                      <i aria-hidden="true" />
+                      <span className="category-spend-icon" aria-hidden="true">
+                        {categoryIcon(row.name, categoryIcons) || '—'}
+                      </span>
                       <b title={row.name}>{row.name}</b>
                     </span>
                     <span className="category-spend-share">{share.toFixed(1)}%</span>
@@ -963,7 +1316,17 @@ export default function ExpenseManagementStage({
             )}
           </div>
           {byCategory.length > 8 && (
-            <p className="category-spend-more">그 외 {byCategory.length - 8}개 카테고리</p>
+            <button
+              type="button"
+              className="category-spend-more"
+              onClick={() => setCategorySpendExpanded((expanded) => !expanded)}
+              aria-expanded={categorySpendExpanded}
+            >
+              <span>
+                {categorySpendExpanded ? '접기' : `더보기 (${byCategory.length - 8}개)`}
+              </span>
+              <span className={categorySpendExpanded ? 'open' : ''} aria-hidden="true">⌄</span>
+            </button>
           )}
         </div>
       </div>
@@ -1018,11 +1381,37 @@ export default function ExpenseManagementStage({
                 <table className="ledger-table expense-history-table">
                   <thead>
                     <tr>
-                      <th>날짜</th>
-                      <th>카테고리</th>
-                      <th>결제수단</th>
-                      <th className="col-right">금액</th>
-                      <th>메모</th>
+                      <SortableHeader
+                        label="날짜"
+                        sortKey="date"
+                        sort={historySort}
+                        onSort={sortHistoryBy}
+                      />
+                      <SortableHeader
+                        label="카테고리"
+                        sortKey="category"
+                        sort={historySort}
+                        onSort={sortHistoryBy}
+                      />
+                      <SortableHeader
+                        label="결제수단"
+                        sortKey="paymentMethod"
+                        sort={historySort}
+                        onSort={sortHistoryBy}
+                      />
+                      <SortableHeader
+                        label="금액"
+                        sortKey="amount"
+                        sort={historySort}
+                        onSort={sortHistoryBy}
+                        align="right"
+                      />
+                      <SortableHeader
+                        label="메모"
+                        sortKey="memo"
+                        sort={historySort}
+                        onSort={sortHistoryBy}
+                      />
                     </tr>
                   </thead>
                   <tbody>
@@ -1030,7 +1419,7 @@ export default function ExpenseManagementStage({
                       <tr key={`${row.id || 'expense'}-${row.date}-${index}`}>
                         <td data-label="날짜">{row.date || '-'}</td>
                         <td data-label="카테고리">
-                          <span className="tag">{row.category || '미분류'}</span>
+                          <CategoryBadge category={row.category} icons={categoryIcons} />
                           {row.fixedId && <span className="mini-tag">고정</span>}
                           {row.installmentDueDate && (
                             <span className={`mini-tag${installmentBadgeTone(row.installmentDueDate)}`}>

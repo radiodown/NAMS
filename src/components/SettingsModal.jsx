@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 import CalendarInput from './CalendarInput'
 import DataControls from './DataControls'
 import DriveBackup from './DriveBackup'
@@ -15,6 +16,7 @@ export default function SettingsModal({
   maxDeleteMonth = '',
 }) {
   const [deleteMonth, setDeleteMonth] = useState('')
+  useEscapeDismiss(onClose)
   const deleteSummary = monthDeletionSummary[deleteMonth] || null
   const deleteCount = deleteSummary?.total || 0
 

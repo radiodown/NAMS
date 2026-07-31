@@ -11,6 +11,7 @@ export const STORE_PATHS = Object.freeze({
   }),
   income: Object.freeze({
     categories: 'stages.income.categories',
+    categoryIcons: 'stages.income.categoryIcons',
     entries: 'stages.income.entries',
     fixedTemplates: 'stages.income.fixed.templates',
     fixedRecords: 'stages.income.fixed.records',
@@ -19,6 +20,7 @@ export const STORE_PATHS = Object.freeze({
   }),
   expense: Object.freeze({
     categories: 'stages.expense.categories',
+    categoryIcons: 'stages.expense.categoryIcons',
     entries: 'stages.expense.entries',
     paymentMethods: 'stages.expense.paymentMethods',
     fixedTemplates: 'stages.expense.fixed.templates',

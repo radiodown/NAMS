@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 
 function formatMonthLabel(month) {
   const [year, monthNum] = month.split('-')
@@ -7,6 +8,7 @@ function formatMonthLabel(month) {
 
 export default function BanksaladImportModal({ fileName, months, onCancel, onConfirm }) {
   const [selected, setSelected] = useState(() => new Set(months.map((m) => m.month)))
+  useEscapeDismiss(onCancel)
 
   function toggleMonth(month, checked) {
     setSelected((prev) => {

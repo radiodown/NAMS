@@ -112,6 +112,44 @@ export function clearStoredData() {
   notify()
 }
 
+// --- undo -------------------------------------------------------------------
+// A lightweight, in-memory (not persisted across reloads) undo stack for
+// destructive actions like deletes. `doc` is always replaced wholesale by
+// commitDocument (never mutated in place), so capturing the reference before
+// a mutation and comparing it after is a cheap, reliable change check.
+const MAX_UNDO_ENTRIES = 20
+const undoStack = []
+const undoListeners = new Set()
+
+function notifyUndo() {
+  const top = undoStack.length ? { id: undoStack[undoStack.length - 1].id, label: undoStack[undoStack.length - 1].label } : null
+  undoListeners.forEach((listener) => listener(top))
+}
+
+export function withUndo(label, mutate) {
+  const before = doc
+  mutate()
+  if (doc === before) return
+  undoStack.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, label, doc: before })
+  if (undoStack.length > MAX_UNDO_ENTRIES) undoStack.shift()
+  notifyUndo()
+}
+
+export function undoLastChange() {
+  const entry = undoStack.pop()
+  if (!entry) return false
+  doc = entry.doc
+  persist(doc)
+  notify()
+  notifyUndo()
+  return true
+}
+
+export function subscribeUndo(listener) {
+  undoListeners.add(listener)
+  return () => undoListeners.delete(listener)
+}
+
 export function useStoredSlice(path, fallback) {
   const getSnapshot = useCallback(() => {
     const stored = readPath(doc, path)

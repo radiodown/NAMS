@@ -24,6 +24,7 @@ import { parseAmountInput, parseNumberInput } from '../lib/numberInput'
 import { defaultGraphStageSettings, normalizeGraphStageSettings } from '../lib/schema'
 import { useStoredSlice } from '../lib/store'
 import { STORE_PATHS } from '../lib/storePaths'
+import { useEscapeDismiss } from '../lib/useEscapeDismiss'
 import NumberInput from './NumberInput'
 
 const PIE_COLORS = [
@@ -356,6 +357,7 @@ function GoalNumberField({
 export default function SummaryStage({ entries, investments }) {
   const today = todayStr()
   const [expenseTrendSettingsOpen, setExpenseTrendSettingsOpen] = useState(false)
+  useEscapeDismiss(() => setExpenseTrendSettingsOpen(false), expenseTrendSettingsOpen)
   const [rawGraphSettings, setGraphSettings] = useStoredSlice(
     STORE_PATHS.settings.graphStage,
     defaultGraphStageSettings
